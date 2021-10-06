@@ -15,7 +15,7 @@
 # adapated from Chandler & Royle 2013 (appendix)
 # created by Joanna Burgar, 08-May-2018
 # updated by Joanna Burgar, 04-Aug-2021 for Leroy Gonzales (streamlined)
-# script for estimating calculating vaguely informed priors
+# script for estimating / calculating vaguely informed priors
 #############################################################
 
 #########################################################################
@@ -28,15 +28,15 @@
 sigma_prior <- function (hrsize = hrszie, detect_min = detect_min, detect_max = detect_max){
   hrlength <- sqrt(hrsize/pi*10000)
 
-  hr_detect_min_area <- (hrlength+detect_min)^2*pi / 10000 # 65.62 ha, and
-  hr_detect_max_area <- (hrlength+detect_max)^2*pi / 10000 # 135.61 ha
+  hr_detect_min_area <- (hrlength+detect_min)^2*pi / 10000
+  hr_detect_max_area <- (hrlength+detect_max)^2*pi / 10000
 
   # Following Royle et. al (2011), and assuming a
   # chi-squared distribution with 2 degrees of freedom,
   # the range of sigma is given by
 
-  sigma_lower <- sqrt(hr_detect_min_area*10000/pi)/sqrt(5.99)   # 187 m
-  sigma_upper <- sqrt(hr_detect_max_area*10000/pi)/sqrt(5.99)  # 268 m
+  sigma_lower <- sqrt(hr_detect_min_area*10000/pi)/sqrt(5.99)
+  sigma_upper <- sqrt(hr_detect_max_area*10000/pi)/sqrt(5.99)
 
   # Assuming a grid spacing of 1 unit = 1000 m or 1 km, aim to have a prior with most
   # of the density between:
@@ -70,8 +70,8 @@ sigma_prior(hrsize = 500, detect_min = 0, detect_max = 0)
  
 # for a SC or SCR model, we want 2*sigma spacing of cameras ~ 0.515*2 = 1.03 km (~0.5 - 1.5 km)
 # no smaller than 0.258*2 = 0.516 km and no greater than 0.731*2 = 1.462 km
-# assuming a grid spacing of 1000 m we want traps spaced ~ 1 km apart
+# assuming a grid spacing of 1 km we want traps spaced ~ 1 km apart
 
-qgamma(c(0.001,0.5,0.999),60,27) #  1.439910 2.209889 3.215138 - tight home ranges centred on 40
-curve(dgamma(x,60,27), col='black',xlim=c(0,5), ylim=c(0,2))
+qgamma(c(0.001,0.5,0.999),20,20) #  1.439910 2.209889 3.215138 - tight home ranges centred on 40
+curve(dgamma(x,20,20), col='black',xlim=c(0,3), ylim=c(0,2))
 
