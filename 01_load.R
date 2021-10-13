@@ -20,13 +20,13 @@
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "readxl", "Cairo", "coda",
-                      "OpenStreetMap", "ggmap", "truncnorm", "doParallel", "nimble", "scrbook", "xtable")
+list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "readxl", "Cairo","OpenStreetMap", "ggmap", "truncnorm", "xtable")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
+rm(list.of.packages, new.packages) # for housekeeping
 #####################################################################################
 
 # ###--- function to retrieve geodata from BCGW
@@ -47,21 +47,15 @@ lapply(list.of.packages, require, character.only = TRUE)
 ###--- load marten live trap trap data
 lttrap96 <- read_excel("data/WFI_marten_trapping_captures_211006.xlsx",
                   sheet = "TDF 96-97", na="NULL", col_types="text") %>%  type_convert()
-as.Date(colnames(lttrap96[,ncol(lttrap96)])) - as.Date(colnames(lttrap96[,4])) # 177 days
-
 
 lttrap97 <- read_excel("data/WFI_marten_trapping_captures_211006.xlsx",
                        sheet = "TDF 97-98", na="NULL", col_types="text") %>%  type_convert()
-as.Date(colnames(lttrap97[,ncol(lttrap97)])) - as.Date(colnames(lttrap97[,4])) # 195 days
-
 
 lttrap98 <- read_excel("data/WFI_marten_trapping_captures_211006.xlsx",
                        sheet = "TDF 98-99", na="NULL", col_types="text") %>%  type_convert()
-as.Date(colnames(lttrap98[,ncol(lttrap98)])) - as.Date(colnames(lttrap98[,4])) # 158 days
 
 lttrap99 <- read_excel("data/WFI_marten_trapping_captures_211006.xlsx",
                        sheet = "TDF 99-00", na="NULL", col_types="text") %>%  type_convert()
-as.Date(colnames(lttrap99[,ncol(lttrap99)])) - as.Date(colnames(lttrap99[,4])) # 132 days
 
 lttrap <- list(lttrap96, lttrap97, lttrap98, lttrap99)
 rm(lttrap96, lttrap97, lttrap98, lttrap99)
