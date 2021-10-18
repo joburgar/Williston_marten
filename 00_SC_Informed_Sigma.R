@@ -21,28 +21,26 @@
 #########################################################################
 # Informative sigma priors (from Chandler & Royle)
 
-###--- home range and call attentuation to sigma prior
-# home range size in ha
-# detection range in metres
+###--- home range and call attenuation to sigma prior
 
 sigma_prior <- function (hrsize = hrszie, detect_min = detect_min, detect_max = detect_max){
-  hrlength <- sqrt(hrsize/pi*10000)
+  hrlength <- sqrt(hrsize/pi)
 
-  hr_detect_min_area <- (hrlength+detect_min)^2*pi / 10000
-  hr_detect_max_area <- (hrlength+detect_max)^2*pi / 10000
+  hr_detect_min_area <- (hrlength+detect_min)^2*pi
+  hr_detect_max_area <- (hrlength+detect_max)^2*pi
 
   # Following Royle et. al (2011), and assuming a
   # chi-squared distribution with 2 degrees of freedom,
   # the range of sigma is given by
 
-  sigma_lower <- sqrt(hr_detect_min_area*10000/pi)/sqrt(5.99)
-  sigma_upper <- sqrt(hr_detect_max_area*10000/pi)/sqrt(5.99)
+  sigma_lower <- sqrt(hr_detect_min_area/pi)/sqrt(5.99)
+  sigma_upper <- sqrt(hr_detect_max_area/pi)/sqrt(5.99)
 
   # Assuming a grid spacing of 1 unit = 1000 m or 1 km, aim to have a prior with most
   # of the density between:
 
-  pd_lower <- sigma_lower/1000
-  pd_upper <- sigma_upper/1000
+  pd_lower <- sigma_lower
+  pd_upper <- sigma_upper
 
   return(list(pd_lower, pd_upper))
 }
@@ -56,22 +54,25 @@ sigma_prior <- function (hrsize = hrszie, detect_min = detect_min, detect_max = 
 # adult male marten home range mean size = 5.52 km2, range 2.95-8.53 km2
 # adult female marten home range mean size = 4.55 km2m range 1.25-10.05 km2
 
-# to find out the range go with 125 ha to 1005 ha, with the bulk centred on 500 ha
-# hrsize <- 125 # lower
-# hrsize <- 1005 # upper
-# hrsize <- 500 # mid
+# to find out the range go with 1 - 10 km2, with the bulk centred on 5 km
+# hrsize <- 1 # lower
+# hrsize <- 10 # upper
+# hrsize <- 5 # mid
 # detect_min <- 0
 # detect_max <- 0
 
-sigma_prior(hrsize = 500, detect_min = 0, detect_max = 0)
-# [1] 0.258
-# so in this example, want the density of the simga prior to range between 0.258 and 0.731
-# with a peak at 0.515
- 
-# for a SC or SCR model, we want 2*sigma spacing of cameras ~ 0.515*2 = 1.03 km (~0.5 - 1.5 km)
-# no smaller than 0.258*2 = 0.516 km and no greater than 0.731*2 = 1.462 km
-# assuming a grid spacing of 1 km we want traps spaced ~ 1 km apart
+sigma_prior(hrsize = 10, detect_min = 0, detect_max = 0)
+# min = 0.2305216
+# mid = 0.515462
+# max = 0.7289734
 
-qgamma(c(0.001,0.5,0.999),20,20) #  1.439910 2.209889 3.215138 - tight home ranges centred on 40
+# so in this example, want the density of the simga prior to range between 0.23 and 0.73
+# with a peak at 0.52
+ 
+# for a SC or SCR model, we want 2*sigma spacing of cameras ~ 0.52*2 = 1.05 km (~0.5 - 1.5 km)
+# no smaller than 0.23*2 = 0.46 km and no greater than 0.73*2 = 1.46 km
+# assuming a grid spacing, we want traps spaced ~ 1 km apart
+
+qgamma(c(0.001,0.5,0.999),20,20) #  0.4479107 0.9833836 1.8350489 - home ranges centred on 500 ha
 curve(dgamma(x,20,20), col='black',xlim=c(0,3), ylim=c(0,2))
 
