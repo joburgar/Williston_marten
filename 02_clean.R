@@ -251,6 +251,7 @@ traps.scale <- traps[,c("x", "y")]/coord.scale
 buffer <- 5 #5 km unit buffer
 
 traps.sc <- as.data.frame(cbind(traps.scale$x-min(traps.scale$x-buffer), traps.scale$y-min(traps.scale$y-buffer)))
+colnames(traps.sc) <- c("x","y")
 
 xlim = range(traps.sc[,1])+c(-buffer,buffer)
 ylim = range(traps.sc[,2])+c(-buffer,buffer)
@@ -262,7 +263,8 @@ marten.hsdata <- list(J = nrow(traps),
                       xlim = xlim,
                       ylim = ylim,
                       traps = traps.sc,
-                      edf = edf)
+                      edf = edf,
+                      sex = sex)
 
 save(marten.hsdata, file = paste0("./out/MartenData_2020.Rda"))
 
