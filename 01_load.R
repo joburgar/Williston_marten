@@ -69,13 +69,13 @@ ltdat <- read_excel("data/WFI_marten_trapping_captures_211006.xlsx",
 ###--- load marten hair snag trap data
 hstrap <- read_excel("data/Williston_Fisher_Marten_SPI_submission_210929.xlsm",
                      sheet = "Sample Station Information", na="NULL", col_types="text") %>%  
-  type_convert() %>% select(`Sample Station Label`, `UTM Zone Sample Station`, `Easting Sample Station`, `Northing Sample Station`, `Grid Cell`)
+  type_convert() %>% dplyr::select(`Sample Station Label`, `UTM Zone Sample Station`, `Easting Sample Station`, `Northing Sample Station`, `Grid Cell`)
 # glimpse(hstrap)
 
 ###--- load marten hair snag data (2020)
 hsdat <- read_excel("data/Williston_Fisher_Marten_SPI_submission_210929.xlsm",
                     sheet = "Biological Sample Collection", na="NULL") %>%
-  filter(Species=="M-MAAM") %>% select(`Study Area Name`, `Sample Station Label`, Date, `Species`,`Animal ID`,`Comments`, `Sex`, `Sampling Session`)
+  filter(Species=="M-MAAM") %>% dplyr::select(`Study Area Name`, `Sample Station Label`, Date, `Species`,`Animal ID`,`Comments`, `Sex`, `Sampling Session`)
 # glimpse(hsdat)
 
 ################################################################################
