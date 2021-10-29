@@ -131,7 +131,7 @@ for(i in 1:length(lttrap)){
   bb <- bbox(b.r)
 
 marten.data <- list(xlim = bb[1,], ylim = bb[2,], trap.oper = trap.oper,
-                    traps = traps.scale, observations = dat.mart)
+                    traps = traps.scale, observations = dat.mart, daylookup = daylookup)
 save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".Rda"))
 }
 
@@ -143,6 +143,7 @@ save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".Rda"))
 ###--- wrangle trap data
 traps.df <- as.data.frame(hstrap)
 names(traps.df)
+
 traps.df <- traps.df %>% dplyr::select(-`UTM Zone Sample Station`) %>% rename("Station"=1, "Easting"=2, "Northing"=3, "Grid_Cell"=4)
 traps.df %>% count(Grid_Cell) # 106 grid cells
 traps <- data.frame(Grid_Cell = traps.df$Grid_Cell, x = traps.df$Easting, y = traps.df$Northing)
@@ -157,12 +158,17 @@ traps.df$Grid_Focus <- ifelse(traps.df$tmp==3, "marten","fisher")
 traps.df$tmp <- NULL
 traps.df %>% filter(Grid_Focus=="fisher") %>% count(Grid_Cell)# 66 fisher focused cells
 traps.df %>% filter(Grid_Focus=="marten") %>% count(Grid_Cell)# 40 marten focused cells
+# traps.df %>% count(Grid_Focus)
 
 traps.sf <- st_as_sf(traps.df, coords=c("Easting","Northing"), crs=26910)
 ggplot()+
   geom_sf(data=traps.sf, aes(fill=Grid_Focus, col=Grid_Focus))
 
-
+# subset data to just the marten focused Grid Cells
+traps.marten <- data.frame(Grid_Cell = traps.df[traps.df$Grid_Focus=="marten",]$Grid_Cell, 
+                           x = traps.df[traps.df$Grid_Focus=="marten",]$Easting, y = traps.df[traps.df$Grid_Focus=="marten",]$Northing)
+traps.marten <- traps.marten[!duplicated(traps.marten$Grid_Cell),]
+traps.marten <- traps.marten %>% arrange(Grid_Cell) 
 # tmp <- gsub(".*\\-", "", traps.sf$Grid_Cell)
 # traps.sf$Grid <- as.factor(substr(traps.sf$Grid_Cell, 1, nchar(traps.sf$Grid_Cell)-nchar(tmp)-1))
 # traps.sf %>% count(Grid) %>% st_drop_geometry() # only 
@@ -213,6 +219,10 @@ edf$Animal_Num <- as.numeric(animal$Animal_Num[match(edf$Animal_ID, animal$Anima
 edf$Sex <- as.numeric(ifelse(edf$Sex=="M",0,1))
 edf$Grid_Num <- as.numeric(traps$Grid_Num[match(edf$Grid_Cell, traps$Grid_Cell)])
 
+edf.marten <- edf %>% filter(Grid_Cell %in% traps.marten$Grid_Cell)
+unique(edf.marten$Grid_Cell) # 17 Grid Cells with detections (out of a possible 40)
+edf.marten %>% count(Animal_ID) # 11 animals detected
+edf.marten %>% count(Sex) # 11 male and 8 females
 
 # create detection histories for each marten, by Grid cell rather than station
 # keeping code in case need to copy in other scripts, but going with edf code above for this project
@@ -267,6 +277,45 @@ marten.hsdata <- list(J = nrow(traps),
                       sex = sex)
 
 save(marten.hsdata, file = paste0("./out/MartenData_2020.Rda"))
+
+# For the marten only trap data
+coord.scale <- 1000
+traps.scale <- traps.marten[,c("x", "y")]/coord.scale
+
+buffer <- 5 #5 km unit buffer
+
+traps.sc <- as.data.frame(cbind(traps.scale$x-min(traps.scale$x-buffer), traps.scale$y-min(traps.scale$y-buffer)))
+colnames(traps.sc) <- c("x","y")
+
+xlim = range(traps.sc[,1])+c(-buffer,buffer)
+ylim = range(traps.sc[,2])+c(-buffer,buffer)
+area <- diff(xlim)*diff(ylim)/100	# Density reported per 100 sq km
+area # 27.3
+
+edf.marten <- edf.marten %>% arrange(Animal_ID, Occ, Grid_Cell, Sex)  
+
+animal <- edf.marten[!duplicated(edf.marten$Animal_ID),]
+animal <- animal %>% arrange(Animal_ID)
+animal$Animal_Num <- row.names(animal)
+
+grid_cell <- edf.marten[!duplicated(edf.marten$Grid_Cell),]
+grid_cell <- grid_cell %>% arrange(Grid_Cell)
+grid_cell$Grid_Num <- row.names(grid_cell)
+
+# Now put it on the animal:
+edf.marten$Animal_Num <- as.numeric(animal$Animal_Num[match(edf.marten$Animal_ID, animal$Animal_ID)])
+edf.marten$Grid_Num <- as.numeric(grid_cell$Grid_Num[match(edf.marten$Grid_Cell, grid_cell$Grid_Cell)])
+
+martenGrid.hsdata <- list(J = nrow(traps.marten),
+                      area = area,
+                      xlim = xlim,
+                      ylim = ylim,
+                      traps = traps.sc,
+                      edf = edf.marten,
+                      sex = sex)
+
+save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.Rda"))
+
 
 ###--- for visualization of recaps
 
