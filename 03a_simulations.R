@@ -53,7 +53,8 @@
 #####################################################################################
 # 03a_simulations.R
 # script to run N-mixxture models fit to live trap (1996 - 2000) simulated data
-# adapted by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 27-Oct-2021
+# script to run SCR models fit to genetic hair snag (2020) simulated data
+# adapted by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 27-Oct-2021 & 2-Nov-2021
 #####################################################################################
 
 # if issues running nimble, run the following line
@@ -379,4 +380,127 @@ nmix.sim.df[1:25,]
 mean.lambda <- 0.9385
 M*mean.lambda # estimated N
 sum(N) # compared to true N
+
+#####################################################################################
+##################------ CURRENT DATA ------##################
+#####################################################################################
+# run for 2 clusters of marten grid cells
+load("out/MartenGridData_2020.Rda")
+
+# just marten cells
+J <- martenGrid.hsdata$J  # 2 clusters of 20 traps each
+area <- c(martenGrid.hsdata$area[[1]],martenGrid.hsdata$area[[2]])
+xlim <- array(0,c(2,2))
+xlim[1,] <- martenGrid.hsdata$xlim[[1]]
+xlim[2,] <- martenGrid.hsdata$xlim[[2]]
+# xlim <- martenGrid.hsdata$xlim
+
+ylim <- array(0,c(2,2))
+ylim[1,] <- martenGrid.hsdata$ylim[[1]]
+ylim[2,] <- martenGrid.hsdata$ylim[[2]]
+# ylim <- martenGrid.hsdata$ylim
+
+traps <- array(0,c(J,2,2))
+traps.C1 <- as.matrix(martenGrid.hsdata$traps[[1]][,c("x","y")])
+traps[,,1] <- traps.C1
+traps.C2 <- as.matrix(martenGrid.hsdata$traps[[2]][,c("x","y")])
+traps[,,2] <- traps.C2
+
+
+edf <- martenGrid.hsdata$edf
+trials <- cbind(rep(4,20),rep(4,20))
+sex <- martenGrid.hsdata$sex
+G <- 2 # 2 clusters
+M <- 200 # augmented population
+
+# traps are in 2 clusters: 1-20, 21-40
+plot(traps[[1]])
+plot(traps[[2]])
+
+# y for Cluster 1
+y.C1 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
+# Add the captures as 1s with the good old cbind trick.
+edf.marten.C1 <- edf.marten %>% filter(Grid_Num < 21)
+y.C1[cbind(edf.marten.C1$Animal_Num,edf.marten.C1$Grid_Num, edf.marten.C1$Occ)] <- 1
+sum(y.C1) == nrow(edf.marten.C1) 	# 6 detections = 3 animals, 1 with 3 detections, 1 with 2 and 1 with 1
+
+# y for Cluster 2
+y.C2 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
+# Add the captures as 1s with the good old cbind trick.
+edf.marten.C2 <- edf.marten %>% filter(Grid_Num > 20)
+y.C2[cbind(edf.marten.C2$Animal_Num,edf.marten.C2$Grid_Num-20, edf.marten.C2$Occ)] <- 1 # changed the Grid_Num to reflect rownum in traps df
+sum(y.C2) == nrow(edf.marten.C2) 	# 13 detections = 8 animals, 2 with 3 detections, 1 with 2, and 5 with 1
+edf.marten.C2 %>% count(Animal_ID)
+
+# Now let's speed it up by summing over all 4 occasions for a binomial dist.
+y_all.C1 <- apply(y.C1, 1:2, sum)
+dim(y_all.C1)
+y_all.C2 <- apply(y.C2, 1:2, sum)
+y_all <- array(0,c(M,J,2)) # needs to be an array, not a list
+y_all[,,1] <- y_all.C1
+y_all[,,2] <- y_all.C2
+
+z_all <- array(1,c(M,J,2)) # needs to be an array, not a list
+
+SCR_bern <- nimbleCode({
+  sigma ~ dunif(0,1000) # uninformative prior
+  psi ~ dbeta(1,1)
+  lambda ~ dunif(0,20)
+  
+  for(g in 1:G){
+    for(i in 1:M[g]){
+      z[i,g] ~ dbern(psi)
+      X[i,1,g]~dunif(0,20) # traps are centered and scaled, start at 0 and end <20 for both xlim and ylim
+      X[i,2,g]~dunif(0,20)
+
+      for(j in 1:J){
+      d2[i,j,g]<- (X[i,1,g]-traps[j,1,g])^2 + (X[i,2,g]-traps[j,2,g])^2
+      p[i,j,g]<- z[i,g]*(1-exp(-lambda*exp(-d2[i,j,g]/(2*sigma*sigma))))
+      y[i,j,g] ~ dbinom_vector(size = 4, prob = p[i,j,g])      
+      }
+    }
+    
+    N[g]<-sum(z[1:M,g])
+    D[g]<-N[g]/area[g]
+    }
+  }
+)
+
+constants<- list(
+  C = C,
+  J = J,
+  area = area,
+  xlim = xlim,
+  ylim = ylim,
+  traps = traps, 
+  M = cbind(M,M),
+  G = G,
+  trials = cbind(rep(4,J)))
+
+# specify initial values
+# init <-  function() {  list(sigma=rnorm(1,10), lam0=runif(1) , 
+#                                 z=cbind(rep(1,M),rep(1,M))) }
+
+
+data <- list(
+  z = array(1,c(M,2)),
+  y = y_all)
+
+dim(y_all)
+
+params <- c('sigma', 'lambda', 'psi', 'N', 'D')
+
+# MCMC settings
+ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+
+nSCR.2020.out <- nimbleMCMC(code = SCR_bern, 
+                           constants = data, 
+                           #inits = inits,
+                           monitors = params,
+                           niter = ni, 
+                           nburnin = nb,
+                           nchains = nc,
+                           samplesAsCodaMCMC = TRUE)
+MCMCsummary(nSCR.2020.out, round = 4)
+
 
