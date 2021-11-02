@@ -16,10 +16,10 @@
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 10-Oct-2021
 #####################################################################################
 
-.libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
+.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse", "lubridate","chron","sf","sp","raster","rgdal", "concaveman","Cairo","OpenStreetMap", "ggmap")
+list.of.packages <- c("tidyverse", "lubridate","chron","sf","sp","raster","rgeos","rgdal", "concaveman","Cairo","OpenStreetMap", "ggmap")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
