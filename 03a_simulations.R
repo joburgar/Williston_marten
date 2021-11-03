@@ -392,7 +392,8 @@ sum(N) # compared to true N
 ##################------ CURRENT DATA ------##################
 #####################################################################################
 # run for 2 clusters of marten grid cells
-load("out/MartenGridData_2020.Rda")
+# data wrangled and code fixed by Daniel Eacker (through nimble user group listserv)
+load("MartenGridData_2020.Rda")
 
 # just marten cells
 J <- martenGrid.hsdata$J  # 2 clusters of 20 traps each
@@ -414,7 +415,7 @@ traps.C2 <- as.matrix(martenGrid.hsdata$traps[[2]][,c("x","y")])
 traps[,,2] <- traps.C2
 
 
-edf <- martenGrid.hsdata$edf
+edf.marten <- martenGrid.hsdata$edf
 trials <- cbind(rep(4,20),rep(4,20))
 sex <- martenGrid.hsdata$sex
 G <- 2 # 2 clusters
@@ -427,87 +428,120 @@ plot(traps[[2]])
 # y for Cluster 1
 y.C1 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
 # Add the captures as 1s with the good old cbind trick.
-edf.marten.C1 <- edf.marten %>% filter(Grid_Num < 21)
+edf.marten.C1 <- edf.marten[[1]] %>% filter(Grid_Num < 21)
 y.C1[cbind(edf.marten.C1$Animal_Num,edf.marten.C1$Grid_Num, edf.marten.C1$Occ)] <- 1
-sum(y.C1) == nrow(edf.marten.C1) 	# 6 detections = 3 animals, 1 with 3 detections, 1 with 2 and 1 with 1
+sum(y.C1) == nrow(edf.marten.C1)     # 6 detections = 3 animals, 1 with 3 detections, 1 with 2 and 1 with 1
+
+# get rid of zeros so observed animals come first
+y.C1 = y.C1[which(apply(y.C1,1,sum)>0),,]
 
 # y for Cluster 2
 y.C2 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
 # Add the captures as 1s with the good old cbind trick.
-edf.marten.C2 <- edf.marten %>% filter(Grid_Num > 20)
+edf.marten.C2 <- edf.marten[[2]] %>% filter(Grid_Num > 20)
 y.C2[cbind(edf.marten.C2$Animal_Num,edf.marten.C2$Grid_Num-20, edf.marten.C2$Occ)] <- 1 # changed the Grid_Num to reflect rownum in traps df
-sum(y.C2) == nrow(edf.marten.C2) 	# 13 detections = 8 animals, 2 with 3 detections, 1 with 2, and 5 with 1
+sum(y.C2) == nrow(edf.marten.C2)     # 13 detections = 8 animals, 2 with 3 detections, 1 with 2, and 5 with 1
 edf.marten.C2 %>% count(Animal_ID)
 
+# get rid of zeros so observed animals come first
+y.C2 = y.C2[which(apply(y.C2,1,sum)>0),,]
+
+
 # Now let's speed it up by summing over all 4 occasions for a binomial dist.
-y_all.C1 <- apply(y.C1, 1:2, sum)
+n0 = c(length(which(apply(y.C1,1,sum)>0)),length(which(apply(y.C2,1,sum)>0)))
+y_all.C1 <- apply(y.C1, c(1,2), sum)
 dim(y_all.C1)
-y_all.C2 <- apply(y.C2, 1:2, sum)
+y_all.C2 <- apply(y.C2, c(1,2), sum)
 y_all <- array(0,c(M,J,2)) # needs to be an array, not a list
-y_all[,,1] <- y_all.C1
-y_all[,,2] <- y_all.C2
+y_all[1:n0[1],,1] <- y_all.C1
+y_all[1:n0[2],,2] <- y_all.C2
 
 z_all <- array(1,c(M,J,2)) # needs to be an array, not a list
 
 SCR_bern <- nimbleCode({
-  sigma ~ dunif(0,1000) # uninformative prior
+  sigma ~ dunif(0,100) # uninformative prior
   psi ~ dbeta(1,1)
-  lambda ~ dunif(0,20)
+  p0 ~ dunif(0,1)
   
   for(g in 1:G){
-    for(i in 1:M[g]){
+    for(i in 1:M){
       z[i,g] ~ dbern(psi)
-      X[i,1,g]~dunif(0,20) # traps are centered and scaled, start at 0 and end <20 for both xlim and ylim
-      X[i,2,g]~dunif(0,20)
-
+      s[i,1,g]~dunif(0,20) # traps are centered and scaled, start at 0 and end <20 for both xlim and ylim
+      s[i,2,g]~dunif(0,20)
+      
       for(j in 1:J){
-      d2[i,j,g]<- (X[i,1,g]-traps[j,1,g])^2 + (X[i,2,g]-traps[j,2,g])^2
-      p[i,j,g]<- z[i,g]*(1-exp(-lambda*exp(-d2[i,j,g]/(2*sigma*sigma))))
-      y[i,j,g] ~ dbinom_vector(size = 4, prob = p[i,j,g])      
+        d2[i,j,g]<- sqrt((s[i,1,g]-traps[j,1,g])^2 + (s[i,2,g]-traps[j,2,g])^2)
+        p[i,j,g]<- z[i,g]*p0*exp(-d2[i,j,g]^2/(sigma*sigma^2))
       }
+      y[i,1:J,g] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J,g])      
+      
     }
     
     N[g]<-sum(z[1:M,g])
     D[g]<-N[g]/area[g]
-    }
   }
+}
 )
 
 constants<- list(
-  C = C,
   J = J,
   area = area,
-  xlim = xlim,
-  ylim = ylim,
-  traps = traps, 
-  M = cbind(M,M),
-  G = G,
-  trials = cbind(rep(4,J)))
+  M = M,
+  G = G)
 
-# specify initial values
-# init <-  function() {  list(sigma=rnorm(1,10), lam0=runif(1) , 
-#                                 z=cbind(rep(1,M),rep(1,M))) }
-
+# get average capture locations for detected individuals at starting activity center locations
+st=array(NA, c(M,2,G))
+for(g in 1:G){
+  for(i in 1:n0[g]){ # augmented
+    if(sum(y_all[i,,g])==1){
+      st[i,1:2,g] = traps[y_all[i,,g],,g]
+    }else {
+      st[i,1:2,g] = apply(traps[y_all[i,,g],,g], 2, mean)
+    }
+  }
+  for(i in (n0[g]+1):M){
+    st[i,1:2,g] = runif(2, 0, 20)
+  }}  
 
 data <- list(
-  z = array(1,c(M,2)),
-  y = y_all)
+  y = y_all, traps = traps, trials=rep(4,J))
+
+z.init = apply(y_all, c(1,3), sum)
+z.init = ifelse(z.init >=1, 1, 0)
+
+inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
 
 dim(y_all)
 
-params <- c('sigma', 'lambda', 'psi', 'N', 'D')
+params <- c('sigma', 'p0', 'psi', 'N', 'D', 'p')
 
 # MCMC settings
-ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 
-nSCR.2020.out <- nimbleMCMC(code = SCR_bern, 
-                           constants = data, 
-                           #inits = inits,
-                           monitors = params,
-                           niter = ni, 
-                           nburnin = nb,
-                           nchains = nc,
-                           samplesAsCodaMCMC = TRUE)
-MCMCsummary(nSCR.2020.out, round = 4)
+# Test with no latent N
+scrR <- nimbleModel(code = SCR_bern,
+                    data=data,
+                    constants = constants,
+                    inits = inits)
+
+scrR$calculate()
+scrR$initializeInfo()
+
+# compile model to C++#
+scrC <- compileNimble(scrR, showCompilerOutput = F)
+# MCMC sampler configurations
+mcmcspec<-configureMCMC(scrR, monitors=params)
+# build the MCMC specifications
+scrMCMC <- buildMCMC(mcmcspec)
+# complile the code in S+
+CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
+# run MCMC
+
+tic()
+results1 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
+toc()
+
+apply(results1, 2, mean) # look at mean values
+
 
 
