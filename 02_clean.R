@@ -16,10 +16,10 @@
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 10-Oct-2021
 #####################################################################################
 
-.libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
+.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse", "lubridate","chron","sf","sp","raster","rgdal", "concaveman","Cairo","OpenStreetMap", "ggmap")
+list.of.packages <- c("tidyverse", "lubridate","chron","sf","sp","raster","rgeos","rgdal", "concaveman","Cairo","OpenStreetMap", "ggmap")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -281,16 +281,29 @@ save(marten.hsdata, file = paste0("./out/MartenData_2020.Rda"))
 # For the marten only trap data
 coord.scale <- 1000
 traps.scale <- traps.marten[,c("x", "y")]/coord.scale
+row.names(traps.scale) <- traps.marten$Grid_Cell
 
 buffer <- 5 #5 km unit buffer
 
-traps.sc <- as.data.frame(cbind(traps.scale$x-min(traps.scale$x-buffer), traps.scale$y-min(traps.scale$y-buffer)))
-colnames(traps.sc) <- c("x","y")
+traps.scale.C1 <- traps.scale[1:20,]
+traps.scale.C2 <- traps.scale[21:40,]
 
-xlim = range(traps.sc[,1])+c(-buffer,buffer)
-ylim = range(traps.sc[,2])+c(-buffer,buffer)
-area <- diff(xlim)*diff(ylim)/100	# Density reported per 100 sq km
-area # 27.3
+traps.sc.C1 <- as.data.frame(cbind(traps.scale.C1$x-min(traps.scale.C1$x-buffer), traps.scale.C1$y-min(traps.scale.C1$y-buffer)))
+traps.sc.C2 <- as.data.frame(cbind(traps.scale.C2$x-min(traps.scale.C2$x-buffer), traps.scale.C2$y-min(traps.scale.C2$y-buffer)))
+colnames(traps.sc.C1) <- c("x","y")
+rownames(traps.sc.C1) <- rownames(traps.scale.C1)
+colnames(traps.sc.C2) <- c("x","y")
+rownames(traps.sc.C2) <- rownames(traps.scale.C2)
+
+xlim.C1 = range(traps.sc.C1[,1])+c(-buffer,buffer)
+ylim.C1 = range(traps.sc.C1[,2])+c(-buffer,buffer)
+area.C1 <- diff(xlim.C1)*diff(ylim.C1)/100	# Density reported per 100 sq km
+area.C1 # 2.92
+
+xlim.C2 = range(traps.sc.C2[,1])+c(-buffer,buffer)
+ylim.C2 = range(traps.sc.C2[,2])+c(-buffer,buffer)
+area.C2 <- diff(xlim.C2)*diff(ylim.C2)/100	# Density reported per 100 sq km
+area.C2 # 2.94
 
 edf.marten <- edf.marten %>% arrange(Animal_ID, Occ, Grid_Cell, Sex)  
 
@@ -298,21 +311,29 @@ animal <- edf.marten[!duplicated(edf.marten$Animal_ID),]
 animal <- animal %>% arrange(Animal_ID)
 animal$Animal_Num <- row.names(animal)
 
-grid_cell <- edf.marten[!duplicated(edf.marten$Grid_Cell),]
-grid_cell <- grid_cell %>% arrange(Grid_Cell)
-grid_cell$Grid_Num <- row.names(grid_cell)
+
+grid_cell <- as.data.frame(array(NA, dim=c(nrow(traps.scale),0)))
+grid_cell$Grid_Cell <- rownames(traps.scale)
+grid_cell$Grid_Num <- rownames(grid_cell)
 
 # Now put it on the animal:
 edf.marten$Animal_Num <- as.numeric(animal$Animal_Num[match(edf.marten$Animal_ID, animal$Animal_ID)])
 edf.marten$Grid_Num <- as.numeric(grid_cell$Grid_Num[match(edf.marten$Grid_Cell, grid_cell$Grid_Cell)])
 
-martenGrid.hsdata <- list(J = nrow(traps.marten),
-                      area = area,
-                      xlim = xlim,
-                      ylim = ylim,
-                      traps = traps.sc,
-                      edf = edf.marten,
-                      sex = sex)
+traps.sc.C1$Grid_Num <- grid_cell$Grid_Num[match(rownames(traps.sc.C1), grid_cell$Grid_Cell)]
+traps.sc.C2$Grid_Num <- grid_cell$Grid_Num[match(rownames(traps.sc.C2), grid_cell$Grid_Cell)]
+
+Sex.C1 <- edf.marten %>% filter(Grid_Num<21) %>% dplyr::select(Sex)
+Sex.C2 <- edf.marten %>% filter(Grid_Num>20) %>% dplyr::select(Sex)
+
+# Check that traps are in same order as 
+martenGrid.hsdata <- list(J = nrow(traps.sc.C1), # 20 traps in each cluster
+                      area = list(area.C1, area.C2),
+                      xlim = list(xlim.C1, xlim.C2),
+                      ylim = list(ylim.C1, ylim.C2),
+                      traps = list(traps.sc.C1,traps.sc.C2),
+                      edf = list(edf.marten %>% filter(Grid_Num<21),edf.marten %>% filter(Grid_Num>20)),
+                      sex = list(Sex.C1$Sex, Sex.C2$Sex))
 
 save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.Rda"))
 
