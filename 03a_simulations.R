@@ -58,6 +58,8 @@
 
 # if issues running nimble, run the following line
 writeLines('PATH="${RTOOLS40_HOME}\\usr\\bin;${PATH}"', con = "~/.Renviron")
+Sys.which("make")
+## "C:\\rtools40\\usr\\bin\\make.exe"
 
 # Some of the NIMBLE examples generate html pages with comparisons
 # of different MCMCs.  These will be placed in the path contained in
@@ -73,7 +75,7 @@ if(!exists('outputDirectory')) {
 # 6.3. Simulation and analysis of the simplest possible N-mixture model
 # ------------------------------------------------------------------------
 
-.libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
+.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
 list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo")
@@ -134,6 +136,11 @@ summary(tot.effort)
 M <- nrow(trap.oper)                     # Number of sites (williston Basin in 1996) = 77
 J <- ncol(trap.oper)                      # Number of abu. measurements per site (rep. counts) = 178
 C <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data
+
+M <- 77                     # Number of sites (williston Basin in 1996) = 77
+J <- 178                      # Number of abu. measurements per site (rep. counts) = 178
+C <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data
+
 
 # Parameter values
 lambda <- 1               # Expected abundance
