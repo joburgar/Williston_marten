@@ -55,6 +55,9 @@ if(!exists('outputDirectory')) {
 
 # load data if not running concurrently
 # load("out/MartenData_1996.Rda")
+# nm.area <- diff(marten.data$xlim)*diff(marten.data$ylim)/100	# Density reported per 100 sq km
+# nm.area # 51.21623 100 km2 or 5122 km2 total area (is this true?)
+
 out.files <- list.files("./out/", pattern="*.Rda")
 out.files <- out.files[!grepl("2020", out.files)]
 
@@ -287,6 +290,7 @@ for(i in 1:length(retro.data.out)){
 }
 
 save(retro_weekly_noeffort, file = paste0("./out/retro_weekly_noeffort_mcmcoutput.Rda"))
+# load("out/retro_weekly_noeffort_mcmcoutput.Rda")
 
 out96 <- MCMCsummary(retro_weekly_noeffort[[1]])
 out97 <- MCMCsummary(retro_weekly_noeffort[[2]])
@@ -361,128 +365,199 @@ dev.off()
 
 
 #####################################################################################
-# This corresponds to "model2.txt" in original AHM code.
 
-Section6p3_code <- nimbleCode( {
-  # Priors
-  # lambda ~ dgamma(0.001, 0.001) # came with generic code
-  lambda ~ dunif(0,100) # for an uninformative prior
-  p ~ dunif(0, 1)
-  # Likelihood
-  for (i in 1:M) {
-    N[i] ~ dpois(lambda)      # State model
-    for (j in 1:J) {
-      C[i,j] ~ dbin(p, N[i]) # Observation model
-    }
-  }
-})
+# Section6p4_code <- nimbleCode( {
+#   # Priors
+#   for(k in 1:3) {                # Loop over 3/4 years
+#     alpha0[k] ~ dunif(-10, 10) # Detection intercepts
+#     alpha1[k] ~ dunif(-10, 10) # Detection slopes
+#     beta0[k] ~ dunif(-10, 10)  # Abundance intercepts
+#     beta1[k] ~ dunif(-10, 10)  # Abundance slopes
+#   }
+#   
+#   # Likelihood
+#   # Ecological model for true abundance
+#   for (i in 1:M){
+#     N[i] ~ dpois(lambda[i])
+#     log(lambda[i]) <- beta0[year[i]] + beta1[year[i]]
+#     # Some intermediate derived quantities
+#     # critical[i] <- step(2-N[i])# yields 1 whenever N is 2 or less
+#     # z[i] <- step(N[i]-0.5)     # Indicator for occupied site
+#     # Observation model for replicated counts
+#     for (j in 1:J){
+#       C[i,j] ~ dbin(p[i,j], N[i])
+#       logit(p[i,j]) <- alpha0[j] + alpha1[j] * effort[i,j]
+#     }
+#   }
+#   
+#   # Derived quantities; unnecessary when running for inference purpose
+#   Nocc <- sum(z[1:M])         # Number of occupied sites among sample of M
+#   Ntotal <- sum(N[1:M])       # Total population size at M sites combined
+#   Nyear[1] <- sum(N[1:77])  # Total abundance for sites in year 1 (1996-1997) # 78+105
+#   Nyear[2] <- sum(N[78:183]) # Total abundance for sites in year 2 (1997-1998) # 105
+#   Nyear[3] <- sum(N[184:283])# Total abundance for sites in year 3 (1998-1999) # 101
+#   # Nyear[4] <- sum(N[284:362])# Total abundance for sites in year 4 (1999-2000)   # 79+286
+#   # for(k in 1:M){         # Predictions of lambda and p ...
+#   #   for(level in 1:3){    #    ... for each level of year and effort factors
+#   #     lam.pred[k, level] <- exp(beta0[level] + beta1[level])
+#   #     logit(p.pred[k, level]) <- alpha0[level] + alpha1[level] * Xeffort[k]
+#   #   }
+#   # }
+#   # N.critical <- sum(critical[1:M]) # Number of populations with critical size
+# })
 
-Section6p4_code <- nimbleCode( {
-  # Priors
-  for(k in 1:3) {                # Loop over 3/4 years
+# M = traps
+# J = occasions
+# K = years
+
+
+nmix_effort <- nimbleCode( {
+  # Priors - separate for each year to be able to monitor output
+  for(k in 1:K) {                # Loop over 3 years
     alpha0[k] ~ dunif(-10, 10) # Detection intercepts
     alpha1[k] ~ dunif(-10, 10) # Detection slopes
     beta0[k] ~ dunif(-10, 10)  # Abundance intercepts
     beta1[k] ~ dunif(-10, 10)  # Abundance slopes
-  }
-  
+    
   # Likelihood
   # Ecological model for true abundance
-  for (i in 1:M){
-    N[i] ~ dpois(lambda[i])
-    log(lambda[i]) <- beta0[year[i]] + beta1[year[i]]
-    # Some intermediate derived quantities
-    # critical[i] <- step(2-N[i])# yields 1 whenever N is 2 or less
-    # z[i] <- step(N[i]-0.5)     # Indicator for occupied site
-    # Observation model for replicated counts
+  for (i in 1:length(M)[1]){
+    N[i,k] ~ dpois(lambda[i,k])
+    log(lambda[i,k]) <- beta0[year[i,k]] + beta1[year[i,k]]
+    
+  # Observation model for replicated counts 
     for (j in 1:J){
-      C[i,j] ~ dbin(p[i,j], N[i])
-      logit(p[i,j]) <- alpha0[j] + alpha1[j] * effort[i,j]
+      C[i,j,k] ~ dbin(p[i,j,k], N[i,k])
+      logit(p[i,j,k]) <- alpha0[j,k] + alpha1[j,k] * effort[i,j,k]
     }
   }
+  }
   
-  # Derived quantities; unnecessary when running for inference purpose
-  # Nocc <- sum(z[1:M])         # Number of occupied sites among sample of M
-  # Ntotal <- sum(N[1:M])       # Total population size at M sites combined
-  Nyear[1] <- sum(N[1:77])  # Total abundance for sites in year 1 (1996-1997) # 78+105
-  Nyear[2] <- sum(N[78:183]) # Total abundance for sites in year 2 (1997-1998) # 105
-  Nyear[3] <- sum(N[184:283])# Total abundance for sites in year 3 (1998-1999) # 101
-  # Nyear[4] <- sum(N[284:362])# Total abundance for sites in year 4 (1999-2000)   # 79+286
-  # for(k in 1:M){         # Predictions of lambda and p ...
-  #   for(level in 1:3){    #    ... for each level of year and effort factors
-  #     lam.pred[k, level] <- exp(beta0[level] + beta1[level])
-  #     logit(p.pred[k, level]) <- alpha0[level] + alpha1[level] * Xeffort[k]
-  #   }
-  # }
-  # N.critical <- sum(critical[1:M]) # Number of populations with critical size
-})
+  Nyear[k] <- sum(z[1:M,k])         
+  D[k] <- Nyear[k]/area
+}
+)
 
 # compareMCMCs for comparing jags/BUGS and nimble - calls MCMCsuite
 # needs modelcode to be exactly the same
 
-# To run as multi-year model, treat each year as a factor, and rbind the 4 y_week matrices
-# this week keep the correct number of traps per year
-# truncate to the number of weeks for the shortest sampling year (i.e., 1999/00)
+# To run as multi-year model, treat each year as a factor, and create arrays with slice for each year
+y_week_9697 <- as.matrix(retro.data.out[[1]][[1]])
+y_week_9798 <- as.matrix(retro.data.out[[2]][[1]])
+y_week_9899 <- as.matrix(retro.data.out[[3]][[1]])
+y_week_9900 <- as.matrix(retro.data.out[[4]][[1]])
+# dimensions are traps by occasions
 
-dim(retro.data.out[[1]][[1]])
-dim(retro.data.out[[2]][[1]])
-dim(retro.data.out[[3]][[1]])
-dim(retro.data.out[[4]][[1]])
+# M = traps
+# J = occasions
+# K = years
+# M <- c(nrow(y_week_9697),nrow(y_week_9798),nrow(y_week_9899),nrow(y_week_9900)) # number of traps
+# J <- c(ncol(y_week_9697),ncol(y_week_9798),ncol(y_week_9899),ncol(y_week_9900)) # number of occasions
+M <- c(nrow(y_week_9697),nrow(y_week_9798),nrow(y_week_9899)) # number of traps
+J <- c(ncol(y_week_9697),ncol(y_week_9798),ncol(y_week_9899)) # number of occasions
+K <- 3 # try first with 3 years to see if it will run 
 
-y_week_all <- rbind(retro.data.out[[1]][[1]][,1:22],
-                    retro.data.out[[2]][[1]][,1:22],
-                    retro.data.out[[3]][[1]][,1:22])#,
-                    # retro.data.out[[4]][[1]][,1:19])
+y_week_all <- array(c(y_week_9697, y_week_9798, y_week_9899), dim=c(max(M),max(J),K))
+dim(y_week_all)
+sum(y_week_all)
+
+# create year covariate
+year <- array(0, dim=c(max(M),K))
+dim(year)
+year[,1] <- c(rep(1,M[1]),rep(NA,max(M)-M[1]))
+year[,2] <- c(rep(2,M[2]),rep(NA,max(M)-M[2]))
+year[,3] <- c(rep(3,M[3]),rep(NA,max(M)-M[3]))
 
 
-year <- c(rep("Y1996/97", nrow(retro.data.out[[1]][[1]])), 
-          rep("Y1997/98", nrow(retro.data.out[[2]][[1]])), 
-          rep("Y1998/99", nrow(retro.data.out[[3]][[1]])))#, 
-          # rep("Y1999/2000", nrow(retro.data.out[[4]][[1]])))  # for the number of traps per year
+# create effort covariate
+effort_9697 <- as.matrix(retro.data.out[[1]][[3]])
+effort_9798 <- as.matrix(retro.data.out[[2]][[3]])
+effort_9899 <- as.matrix(retro.data.out[[3]][[3]])
+effort_9900 <- as.matrix(retro.data.out[[4]][[3]])
 
-(as.factor(year))
-effort <- rbind(retro.data.out[[1]][[3]][,1:22],
-                retro.data.out[[2]][[3]][,1:22],
-                retro.data.out[[3]][[3]][,1:22])#,retro.data.out[[4]][[3]][,1:19])
+# effort_all <- array(c(effort_9697, effort_9798, effort_9899), dim=c(max(M),max(J),K))
+effort_all <- array(c(effort_9697, effort_9798), dim=c(max(M),max(J),K))
+dim(effort_all)
+sum(effort_all)
 
 
 # Bundle data
-Xeffort <- as.vector(scale(rowMeans(effort),center=TRUE, scale=TRUE))
+# test data
+y_week_all.test <- y_week_all[1:min(M),1:min(J),1:3]
+effort_all.test <- effort_all[1:min(M),1:min(J),1:3]
+year.test <- year[1:77,]
+ydata_all.test <- list(C=y_week_all.test, effort=effort_all.test, year=year.test)
 
-ndata_all <- list(C = y_week_all, M = nrow(y_week_all), J = ncol(y_week_all), effort = effort, year = as.numeric(factor(year)))
-str(ndata_all)
+constants.test <- list(
+  J = min(J),
+  area = nm.area,
+  M = min(M),
+  K = K)
+
+# actual data
+ydata_all <- list(C=y_week_all, effort=effort_all, year=year)
 
 
-# Initial values
-Nst <- apply(y_week_all, 1, max)+1   # Important to give good inits for latent N
-inits <- function() list(N = Nst, 
-                         alpha0 = rnorm(22), # need to have same number of initial values as the number of occasions
-                         alpha1 = rnorm(22), 
-                         beta0 = rnorm(22), 
-                         beta1 = rnorm(22))
+constants <- list( # not sure how this works as need to have constants as constants??
+  J = J,
+  area = nm.area,
+  M = M,
+  K = K)
+
+
+N.init = apply(y_week_all, c(1,3), sum)
+N.init = ifelse(N.init >=1, 1, 0)
+
+inits = list(N = N.init, 
+             alpha0 = rnorm(K), 
+             alpha1 = rnorm(K), 
+             beta0 = rnorm(K), 
+             beta1 = rnorm(K))
 
 # Parameters monitored
-# could also estimate N, bayesian counterpart to BUPs before: simply add "N" to the list
-params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear") 
+params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear", "D") 
 
+# MCMC settings to test
+ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 # MCMC settings
-nc <- 3   ;   ni <- 22000   ;   nb <- 2000   ;   nt <- 10
-# We will increase the number of samples collected but will not use the thinning
-# for comparison purposes.
-# ni <- 44000; nb <- 4000
+# nc <- 3   ;   ni <- 22000   ;   nb <- 2000   ;   nt <- 10
 
-out <- nimbleMCMC(code = Section6p4_code, 
-                  constants = ndata_all, 
-                  inits = inits,
-                  monitors = params,
-                  nburnin = nb, 
-                  niter = ni,
-                  nchains = nc,
-                  samplesAsCodaMCMC = TRUE)
+nmix.effort.input <- list(constants, ydata_all)
+save(nmix.effort.input, file = paste0("./out/nmix.effort.input.Rda"))
 
-plot(out)
+# Test with no latent N
+nmixR <- nimbleModel(code = nmix_effort,
+                    data=ydata_all,
+                    constants = constants,
+                    inits = inits)
 
-require(coda)
+nmixR$calculate()
+nmixR$initializeInfo()
+
+# compile model to C++#
+nmixC <- compileNimble(nmixR, showCompilerOutput = F)
+# MCMC sampler configurations
+mcmcspec<-configureMCMC(nmixR, monitors=params)
+# build the MCMC specifications
+nmixMCMC <- buildMCMC(mcmcspec)
+# complile the code in S+
+CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
+# run MCMC
+tic()
+nmix.results1 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
+toc()
+
+
+
+save("nmix.results1",file=paste0("out/retro_weekly_effort_mcmcoutput.RData"))
+str(nmix.results1)
+
+MCMCsummary(nmix.results1[,1:3], round = 4)
+# saved traceplots
+chainsPlot(nmix.results1,
+           var = c("N", "D"))
+
+
 require(mcmcplots)
 colnames(out)
 mcmcplot(out[,1:16])
@@ -655,11 +730,20 @@ CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
 tic()
 results3 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
 toc()
-# results1 = ni = 25000 # 482.63/60 # 8 min
-# results2 = ni = 50000 # 930.06/60 # 15 min
-str(results1)
+# results1 = ni = 25000 # 482.63/60 # 8 min # poor mixing, don't go with these few ni
+# results2 = ni = 50000 # 930.06/60 # 15 min # better mixing
+# results3 = ni = 100000 # 2145.6/60 # 36 min # similar to results 2 
+# go with ni=50000
 
+save("results2",file=paste0("out/SCRbern2020.RData"))
+str(results2)
+load("out/SCRbern2020.RData")
+
+MCMCsummary(results3, round = 4)
 MCMCsummary(results2, round = 4)
 
+# saved traceplots
 chainsPlot(results2,
-           var = c("N", "D", "sigma"))
+           var = c("N", "D"))
+chainsPlot(results2,
+           var = c("sigma","p0", "psi"))
