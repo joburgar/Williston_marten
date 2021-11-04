@@ -79,7 +79,7 @@ if(!exists('outputDirectory')) {
 .libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo")
+list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo","nimbleSCR","tictoc","basicMCMCplots")
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
@@ -393,7 +393,7 @@ sum(N) # compared to true N
 #####################################################################################
 # run for 2 clusters of marten grid cells
 # data wrangled and code fixed by Daniel Eacker (through nimble user group listserv)
-load("MartenGridData_2020.Rda")
+load("out/MartenGridData_2020.Rda")
 
 # just marten cells
 J <- martenGrid.hsdata$J  # 2 clusters of 20 traps each
@@ -401,12 +401,10 @@ area <- c(martenGrid.hsdata$area[[1]],martenGrid.hsdata$area[[2]])
 xlim <- array(0,c(2,2))
 xlim[1,] <- martenGrid.hsdata$xlim[[1]]
 xlim[2,] <- martenGrid.hsdata$xlim[[2]]
-# xlim <- martenGrid.hsdata$xlim
 
 ylim <- array(0,c(2,2))
 ylim[1,] <- martenGrid.hsdata$ylim[[1]]
 ylim[2,] <- martenGrid.hsdata$ylim[[2]]
-# ylim <- martenGrid.hsdata$ylim
 
 traps <- array(0,c(J,2,2))
 traps.C1 <- as.matrix(martenGrid.hsdata$traps[[1]][,c("x","y")])
@@ -414,49 +412,134 @@ traps[,,1] <- traps.C1
 traps.C2 <- as.matrix(martenGrid.hsdata$traps[[2]][,c("x","y")])
 traps[,,2] <- traps.C2
 
-
 edf.marten <- martenGrid.hsdata$edf
 trials <- cbind(rep(4,20),rep(4,20))
 sex <- martenGrid.hsdata$sex
 G <- 2 # 2 clusters
-M <- 200 # augmented population
 
-# traps are in 2 clusters: 1-20, 21-40
-plot(traps[[1]])
-plot(traps[[2]])
 
-# y for Cluster 1
-y.C1 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
-# Add the captures as 1s with the good old cbind trick.
-edf.marten.C1 <- edf.marten[[1]] %>% filter(Grid_Num < 21)
-y.C1[cbind(edf.marten.C1$Animal_Num,edf.marten.C1$Grid_Num, edf.marten.C1$Occ)] <- 1
-sum(y.C1) == nrow(edf.marten.C1)     # 6 detections = 3 animals, 1 with 3 detections, 1 with 2 and 1 with 1
+###--- simulate the data
+N <- round(area[1]*15) # population based on expected density
+N # 44
+
+K <- 4 # number of occasions
+
+# e2dist from scrbook
+e2dist <- function (x, y) {
+  i <- sort(rep(1:nrow(y), nrow(x)))
+  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
+  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
+}
+
+# simulate activity centres
+sx1 <- runif(N, xlim[1,1],xlim[1,2])
+sy1 <- runif(N, ylim[1,1],ylim[1,2])
+S1 <- cbind(sx1, sy1)
+
+sx2 <- runif(N, xlim[2,1],xlim[2,2])
+sy2 <- runif(N, ylim[2,1],ylim[2,2])
+S2 <- cbind(sx2, sy2)
+
+# compute distance matrix
+D1 <- e2dist(S, traps.C1) # distance of each individual from each trap
+D2 <- e2dist(S, traps.C2) # distance of each individual from each trap
+
+# Parameter values
+p0 <- 0.1   # define parameters of encounter probability
+sigma <- 1.5 # scale parameter of half-normal
+alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
+
+# Compute probability of encounter
+probcap1 <- plogis(-2.5)*exp(-alpha1*D1*D1)
+probcap2 <- plogis(-2.5)*exp(-alpha1*D2*D2)
+
+# Generate the encounters of every individual in every trap
+ntraps <- 20
+
+
+Y1 <- matrix(NA, nrow=N, ncol=ntraps)
+for(i in 1:nrow(Y1)){
+  Y1[i,] <- rbinom(ntraps,K,probcap1[i,])
+}
+
+Y2 <- matrix(NA, nrow=N, ncol=ntraps)
+for(i in 1:nrow(Y2)){
+  Y2[i,] <- rbinom(ntraps,K,probcap2[i,])
+}
+
+sum(Y1)
+sum(Y2)
+sum(N)
+
+# View(simSCR0)
+# function to simulate data
+# function (N = 100, K = 20, alpha0 = -2.5, sigma = 0.5, discard0 = TRUE, 
+#           array3d = FALSE, rnd = NULL) 
+# {
+#   if (!is.null(rnd)) 
+#     set.seed(rnd)
+#   traplocs <- cbind(sort(rep(1:5, 5)), rep(1:5, 5))
+#   Dmat <- e2dist(traplocs, traplocs)
+#   ntraps <- nrow(traplocs)
+#   plot(traplocs)
+#   buffer <- 2
+#   Xl <- min(traplocs[, 1] - buffer)
+#   Xu <- max(traplocs[, 1] + buffer)
+#   Yl <- min(traplocs[, 2] - buffer)
+#   Yu <- max(traplocs[, 2] + buffer)
+#   sx <- runif(N, Xl, Xu)
+#   sy <- runif(N, Yl, Yu)
+#   S <- cbind(sx, sy)
+#   D <- e2dist(S, traplocs)
+#   alpha1 <- 1/(2 * sigma * sigma)
+#   probcap <- plogis(alpha0) * exp(-alpha1 * D * D)
+#   Y <- matrix(NA, nrow = N, ncol = ntraps)
+#   for (i in 1:nrow(Y)) {
+#     Y[i, ] <- rbinom(ntraps, K, probcap[i, ])
+#   }
+#   if (discard0) {
+#     totalcaps <- apply(Y, 1, sum)
+#     Y <- Y[totalcaps > 0, ]
+#   }
+#   dimnames(Y) <- list(1:nrow(Y), paste("trap", 1:ncol(Y), 
+#                                        sep = ""))
+#   if (array3d) {
+#     Y <- array(NA, dim = c(N, ntraps, K))
+#     for (i in 1:nrow(Y)) {
+#       for (j in 1:ntraps) {
+#         Y[i, j, 1:K] <- rbinom(K, 1, probcap[i, j])
+#       }
+#     }
+#     if (discard0) {
+#       Y2d <- apply(Y, c(1, 2), sum)
+#       ncaps <- apply(Y2d, 1, sum)
+#       Y <- Y[ncaps > 0, , ]
+#     }
+#   }
+#   list(Y = Y, traplocs = traplocs, xlim = c(Xl, Xu), ylim = c(Yl,Yu), N = N, alpha0 = alpha0, alpha1 = alpha1, sigma = sigma, 
+#        K = K)
+# }
+
+
 
 # get rid of zeros so observed animals come first
-y.C1 = y.C1[which(apply(y.C1,1,sum)>0),,]
+Y1 = Y1[which(apply(Y1,1,sum)>0),]
+dim(Y1) # 1 row for each observed animal
 
-# y for Cluster 2
-y.C2 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
-# Add the captures as 1s with the good old cbind trick.
-edf.marten.C2 <- edf.marten[[2]] %>% filter(Grid_Num > 20)
-y.C2[cbind(edf.marten.C2$Animal_Num,edf.marten.C2$Grid_Num-20, edf.marten.C2$Occ)] <- 1 # changed the Grid_Num to reflect rownum in traps df
-sum(y.C2) == nrow(edf.marten.C2)     # 13 detections = 8 animals, 2 with 3 detections, 1 with 2, and 5 with 1
-edf.marten.C2 %>% count(Animal_ID)
-
-# get rid of zeros so observed animals come first
-y.C2 = y.C2[which(apply(y.C2,1,sum)>0),,]
+Y2 = Y2[which(apply(Y2,1,sum)>0),]
+dim(Y2) # 1 row for each observed animal
 
 
-# Now let's speed it up by summing over all 4 occasions for a binomial dist.
-n0 = c(length(which(apply(y.C1,1,sum)>0)),length(which(apply(y.C2,1,sum)>0)))
-y_all.C1 <- apply(y.C1, c(1,2), sum)
-dim(y_all.C1)
-y_all.C2 <- apply(y.C2, c(1,2), sum)
-y_all <- array(0,c(M,J,2)) # needs to be an array, not a list
-y_all[1:n0[1],,1] <- y_all.C1
-y_all[1:n0[2],,2] <- y_all.C2
+y_sim <- array(0,c(M,J,2)) # needs to be an array, not a list
 
-z_all <- array(1,c(M,J,2)) # needs to be an array, not a list
+n0 = c(length(which(apply(Y1,1,sum)>0)),length(which(apply(Y2,1,sum)>0)))
+
+y_sim[1:n0[1],,1] <- Y1
+y_sim[1:n0[2],,2] <- Y2
+dim(y_sim)
+sum(y_sim)
+
+
 
 SCR_bern <- nimbleCode({
   sigma ~ dunif(0,100) # uninformative prior
@@ -473,8 +556,9 @@ SCR_bern <- nimbleCode({
         d2[i,j,g]<- sqrt((s[i,1,g]-traps[j,1,g])^2 + (s[i,2,g]-traps[j,2,g])^2)
         p[i,j,g]<- z[i,g]*p0*exp(-d2[i,j,g]^2/(sigma*sigma^2))
       }
-      y[i,1:J,g] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J,g])      
       
+      y[i,1:J,g] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J,g])
+
     }
     
     N[g]<-sum(z[1:M,g])
@@ -493,10 +577,10 @@ constants<- list(
 st=array(NA, c(M,2,G))
 for(g in 1:G){
   for(i in 1:n0[g]){ # augmented
-    if(sum(y_all[i,,g])==1){
-      st[i,1:2,g] = traps[y_all[i,,g],,g]
+    if(sum(y_sim[i,,g])==1){
+      st[i,1:2,g] = traps[y_sim[i,,g],,g]
     }else {
-      st[i,1:2,g] = apply(traps[y_all[i,,g],,g], 2, mean)
+      st[i,1:2,g] = apply(traps[y_sim[i,,g],,g], 2, mean)
     }
   }
   for(i in (n0[g]+1):M){
@@ -504,19 +588,19 @@ for(g in 1:G){
   }}  
 
 data <- list(
-  y = y_all, traps = traps, trials=rep(4,J))
+  y = y_sim, traps = traps, trials=rep(4,J))
 
-z.init = apply(y_all, c(1,3), sum)
+z.init = apply(y_sim, c(1,3), sum)
 z.init = ifelse(z.init >=1, 1, 0)
 
 inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
 
-dim(y_all)
+params <- c('sigma', 'p0', 'psi', 'N', 'D')
 
-params <- c('sigma', 'p0', 'psi', 'N', 'D', 'p')
-
-# MCMC settings
-ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
+# MCMC settings to test
+# ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
+# MCMC settings for actual run
+ni <- 50000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
 
 # Test with no latent N
 scrR <- nimbleModel(code = SCR_bern,
@@ -536,12 +620,15 @@ scrMCMC <- buildMCMC(mcmcspec)
 # complile the code in S+
 CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
 # run MCMC
-
 tic()
-results1 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
+sim1 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc)
 toc()
+# sim1 = ni = 50000 # 930.06/60 # 15 min
+str(sim1)
 
-apply(results1, 2, mean) # look at mean values
+MCMCsummary(sim1, round = 4)
 
+chainsPlot(sim1,
+           var = c("N", "D", "sigma"))
 
 
