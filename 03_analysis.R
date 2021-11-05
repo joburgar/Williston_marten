@@ -16,7 +16,7 @@
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 13-Oct-2021
 #####################################################################################
 
-.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
+.libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
 list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","scrbook","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc")
@@ -67,7 +67,7 @@ str(retro.data.out)
 for(r in 1:length(out.files)){
   
   load(paste0("./out/",out.files[r]))
-# https://github.com/nimble-training/AHMnimble/blob/master/Chapter_6/Section_6p11_setup.R
+  # https://github.com/nimble-training/AHMnimble/blob/master/Chapter_6/Section_6p11_setup.R
   marten.data$observations
   marten.data$observations %>% count(Trap_ID)
   marten.data$trap.oper
@@ -83,22 +83,22 @@ for(r in 1:length(out.files)){
   num.weeks <- round(nrow(daylookup)/7+1)
   week.occ <- rep(1:num.weeks, each = 7)
   daylookup$Occ_week <- week.occ[1:nrow(daylookup)]
-
-# create a covariate and dataset for weekly occasions
-# covariate is number of days trap open per week (0-7)
-
-# make sure to only use full weeks in occasion week (i.e., remove last week if not containing 7 days)
+  
+  # create a covariate and dataset for weekly occasions
+  # covariate is number of days trap open per week (0-7)
+  
+  # make sure to only use full weeks in occasion week (i.e., remove last week if not containing 7 days)
   weeks.to.use <- daylookup %>% count(Occ_week)
   weeks.to.use <- weeks.to.use[weeks.to.use$n==7,]$Occ_week
-
-# observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
+  
+  # observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
   week.effort <- as.data.frame(array(NA, dim=c(nrow(trap.oper), length(weeks.to.use))))
   colnames(week.effort) <- weeks.to.use
   rownames(week.effort) <- rownames(trap.oper)
   
   eff.col <- 1
   for(i in 1:length(week.effort)){
-  # i=8
+    # i=8
     tmp1 <- as.data.frame(t(trap.oper))
     tmp1$Occ_week <- daylookup$Occ_week[match(rownames(tmp1), as.character(daylookup$Date))]
     tmp1 <- tmp1 %>% filter(Occ_week %in% weeks.to.use)
@@ -108,23 +108,23 @@ for(r in 1:length(out.files)){
     week.effort[,eff.col] <- tmp2[1:nrow(trap.oper)]
     
     eff.col <- eff.col + 1
-    }
+  }
   
   tot.effort <- rowSums(week.effort) # total effort per trap
-
-
-# for nmixture model, have a covariate (obs.cov) of trap effort per week
-# change occasions from day to week to emulate Poisson data
-
-# nmix.create.y.obs.cov <- function(num.days = num.days){
+  
+  
+  # for nmixture model, have a covariate (obs.cov) of trap effort per week
+  # change occasions from day to week to emulate Poisson data
+  
+  # nmix.create.y.obs.cov <- function(num.days = num.days){
   # i=1
   traps.open <- rowSums(trap.oper)
   observations <- marten.data$observations
   # observations %>% filter(TrapNumber %in% tmp2) 
-
-# need to find the observation data that corresponds to those dates
-# add in the 1 when a marten was in a trap and a 0 if trap open but not in trap
-# create a matrix appending rows as the loop cycles...not sure about this bit
+  
+  # need to find the observation data that corresponds to those dates
+  # add in the 1 when a marten was in a trap and a 0 if trap open but not in trap
+  # create a matrix appending rows as the loop cycles...not sure about this bit
   
   y <- as.data.frame(array(NA, dim=c(nrow(trap.oper), length(weeks.to.use)))) # to create the y object
   dim(y) # 77 traps by 25 occasions
@@ -135,12 +135,12 @@ for(r in 1:length(out.files)){
   obs.wide <- obs.wide %>%  arrange(Date_obs) %>% rename(Date="Date_obs")
   dim(obs.wide) # 96 x 54
   duplicated(obs.wide$Date) # all should be false
-
-# need to add in dates and sites
-# add in dates, transpose to add in sites and then transpose back to become the y matrix
- 
-# create y for all sites and all occasions 
-# y = R (number of sites/traps) x J (number of sampling periods) with y as repeated counts
+  
+  # need to add in dates and sites
+  # add in dates, transpose to add in sites and then transpose back to become the y matrix
+  
+  # create y for all sites and all occasions 
+  # y = R (number of sites/traps) x J (number of sampling periods) with y as repeated counts
   y_all <- left_join(daylookup, obs.wide)
   y_all[is.na(y_all)] <- 0
   y_allT <- as.data.frame(t(y_all %>% dplyr::select(-c(YDay, Date, Occ, Week, Occ_week))))
@@ -155,8 +155,8 @@ for(r in 1:length(out.files)){
   colnames(y_day) <- seq_len(ncol(trap.oper))
   rownames(y_day) <- seq_len(nrow(trap.oper))
   y_day[is.na(y_day)] <- 0
-
-# create y for all sites and weekly occasions 
+  
+  # create y for all sites and weekly occasions 
   tmp3 <- as.data.frame(t(y_day))
   tmp3$Occ_week <- daylookup$Occ_week[match(rownames(tmp3), daylookup$Occ)]
   y_week <- tmp3 %>% group_by(Occ_week) %>% summarise_at(1:nrow(trap.oper), sum)
@@ -165,11 +165,11 @@ for(r in 1:length(out.files)){
   
   sum(y_week) # 279 observations
   sum(y_day)  # 280 observations 
-# omitted 3 days from the week occasion because last week not a full week
+  # omitted 3 days from the week occasion because last week not a full week
   
   sum(y_week) == sum(y_day) # same number of observations in weekly and full dataset
-# not the same because of omitted days
-
+  # not the same because of omitted days
+  
   retro.data.out[[r]] <- list(y_week, y_day, week.effort, weeks.to.use, daylookup)
   
 }
@@ -256,33 +256,6 @@ Section6p3_code <- nimbleCode( {
   }
 })
 
-<<<<<<< HEAD
-############################--- COMPILING DATA ---###########################
-###--- actual data
-load("out/MartenData_2020.Rda")
-load("out/MartenGridData_2020.Rda")
-
-# all data
-J <- marten.hsdata$J
-area <- marten.hsdata$area
-xlim <- marten.hsdata$xlim
-ylim <- marten.hsdata$ylim
-traps <- marten.hsdata$traps
-edf <- marten.hsdata$edf
-trials <- rep(4,nrow(traps))
-sex <- marten.hsdata$sex
-
-# just marten cells
-J <- martenGrid.hsdata$J
-area <- martenGrid.hsdata$area
-xlim <- martenGrid.hsdata$xlim
-ylim <- martenGrid.hsdata$ylim
-traps <- martenGrid.hsdata$traps
-edf <- martenGrid.hsdata$edf
-trials <- rep(4,nrow(traps))
-sex <- martenGrid.hsdata$sex
-=======
->>>>>>> 97e4434ce9dea8900632e3ebc69e944d827528ab
 
 # MCMC settings
 ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
@@ -446,18 +419,18 @@ nmix_effort <- nimbleCode( {
     beta0[k] ~ dunif(-10, 10)  # Abundance intercepts
     beta1[k] ~ dunif(-10, 10)  # Abundance slopes
     
-  # Likelihood
-  # Ecological model for true abundance
-  for (i in 1:length(M)[1]){
-    N[i,k] ~ dpois(lambda[i,k])
-    log(lambda[i,k]) <- beta0[year[i,k]] + beta1[year[i,k]]
-    
-  # Observation model for replicated counts 
-    for (j in 1:J){
-      C[i,j,k] ~ dbin(p[i,j,k], N[i,k])
-      logit(p[i,j,k]) <- alpha0[j,k] + alpha1[j,k] * effort[i,j,k]
+    # Likelihood
+    # Ecological model for true abundance
+    for (i in 1:length(M)[1]){
+      N[i,k] ~ dpois(lambda[i,k])
+      log(lambda[i,k]) <- beta0[year[i,k]] + beta1[year[i,k]]
+      
+      # Observation model for replicated counts 
+      for (j in 1:J){
+        C[i,j,k] ~ dbin(p[i,j,k], N[i,k])
+        logit(p[i,j,k]) <- alpha0[j,k] + alpha1[j,k] * effort[i,j,k]
+      }
     }
-  }
   }
   
   Nyear[k] <- sum(z[1:M,k])         
@@ -532,189 +505,6 @@ constants <- list( # not sure how this works as need to have constants as consta
   K = K)
 
 
-<<<<<<< HEAD
-M <- 2*N
-M # 820
-
-# Now let's speed it up by summing over all 4 nights for a binomial dist.
-yy <- array(NA, c(N, J, K))
-for(j in 1:J) {
-  dist <- sqrt((traps$x[j] - s$s.x)^2 + (traps$y[j] - s$s.y)^2)
-  lambda <- lambda0 * exp(-dist^2 / (2 * sigma^2))
-  for(k in 1:K) {
-    yy[,j,k] <- rpois(N, lambda)
-  }
-}
-n_all <- apply(yy, 1:2, sum)
-sum(n_all) # 166 animals in the detection matrix
-dim(n_all)
-
-M_rest <- array(0, c(M-nrow(n_all), ncol(n_all)))
-dim(M_rest)
-
-sim_all <- rbind(n_all, M_rest)
-sum(sim_all) == sum(n_all) #TRUE
-
-sim.data.sex <- list(y = sim_all, 
-                 z =  c(rep(1, max(nrow(n_all))), rep(NA, M-max(nrow(n_all)))),
-                 sex = rbinom(M, 1, 0.4))
-sim.data <- list(y = sim_all, 
-                     z =  c(rep(1, max(nrow(n_all))), rep(NA, M-max(nrow(n_all)))))
-
-
-SCR_bern <- nimbleCode({
-  sigma ~ dunif(0,1000) # uninformative prior
-  psi ~ dbeta(1,1)
-  psex ~ dbeta(1,1)
-  lambda ~ dunif(0,20)
-  
-  for(i in 1:M){
-    sex[i] ~ dbern(psex)
-    z[i] ~ dbern(psi)
-    X[i,1]~dunif(xlim[1],xlim[2])
-    X[i,2]~dunif(ylim[1],ylim[2])
-    d2[i,1:J]<- (X[i,1]-traps[1:J,1])^2 + (X[i,2]-traps[1:J,2])^2
-    # Because detectability didn't vary per trap night we aggregated!
-    # For comparision to Poisson we will use a hazard half normal detection function.
-    # That way we are using the same lambda, encounter rate.
-    # See Augustine paper as he does this as well.
-    p[i,1:J]<- z[i]*(1-exp(-lambda*exp(-d2[i, 1:J]/(2*sigma*sigma) )) )
-    #From Daniel Turek in nimbleSCR package. Fast binomial! Avoids loopin.
-    y[i,1:J] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J])
-  }
-  N <- sum(z[1:M])
-  D <- N/area
-})
-
-constants<- list(
-  J = nrow(traps),
-  area = area,
-  xlim = xlim,
-  ylim = ylim,
-  traps = traps, 
-  M = M,
-  trials = rep(4, nrow(traps))
-)
-
-data <- list(
-  z =  c(rep(1, max(edf$individualID_2016)), rep(NA, M-max(edf$individualID_2016))),
-  sex = c(sex, rep(NA, M-max(edf$individualID_2016))),	# Note 0 is male and 1 is female.
-  y = y_all
-)
-
-
-Rmodel <- nimbleModel(SCR_bern, constants, sim.data.sex)
-conf <- configureMCMC(Rmodel)
-conf$setMonitors(c('sigma', 'lambda', 'psi', 'N', 'D', 'psex'))
-
-# # Use a block update on locations. Saves time.
-# conf$removeSamplers('X')
-# for(i in 1:M) conf$addSampler(target = paste0('X[', i, ', 1:2]'), 
-#                               type = 'RW_block', silent = TRUE)
-
-Rmcmc <- buildMCMC(conf)
-Cmodel <- compileNimble(Rmodel)
-Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
-Cmcmc$run(10000)
-mvSamples <- Cmcmc$mvSamples
-samples <- as.matrix(mvSamples)
-out <- mcmc(samples[-(1:5000),])
-plot(out[,c('N', 'D', 'psex')])
-dev.new()
-plot(out[,c('sigma', 'lambda')])
-
-
-
-###--- Inits
-
-# Initial values in NIMBLE must be carefully tailored to ensure that all nodes,
-# particularly for latent y.true, begin at reasonable initial values. Any error
-# here could invalidate the results
-
-################################################################################
-e2dist <- function (x, y) {  # Function from scrbook package to calculate the distance between 
-  # locations in 2 matrices.
-  i <- sort(rep(1:nrow(y), nrow(x)))
-  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
-  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
-}
-################################################################################
-
-
-# ys<-apply(yaug,c(1,2),sum)
-s.start <- cbind(runif(M, xlim[1], xlim[2]), runif(M, ylim[1], ylim[2]))
-d <- e2dist(s.start[1:M,], traps)
-lam0s<- runif(1,0.1,0.3)
-sigs <- runif(1,1,5)
-K <- 4
-
-lam <- lam0s * exp( -(d^2)/(2 * sigs^2))
-
-nnind <- nrow(edf) # Number of individuals detected
-nnid <- M_rest
-yi <- array(0, c(M, J, K)) # resighting array
-for (j in 1:J) {
-  for (k in 1:K) {
-    if (nnid[j, k] > 0) {
-      probs <- lam[ ,j]
-      probs <- probs / sum(probs)
-      latent.id <- sample(1:M, nnid[j,k], prob = probs, replace = FALSE)
-      yi[latent.id , j, k] <- 1
-    }
-  } # end of k
-}   # end of j
-
-yis<-apply(yi,c(1,2),sum) #+ apply(yaug,c(1,2),sum)
-zst<-apply(yis, 1, sum); zst[zst>0]<-1
-id.prob.s<-sum(yaug)/(sum(yaug)+sum(nnid))
-
-inits <-   list(z=rep(1,M),             # z inits
-                s=s.start,         # s inits
-                lam0=lam0s,        # baseline detection rate
-                sig=sigs,          # movement parameter
-                id.prob=0.0758, # detection rate
-                y.full=yis)        # latent true histories
-str(inits)
-## List of 6
-##  $ z      : num [1:80] 1 1 1 1 1 1 1 1 0 0 ...
-##  $ s      : num [1:80, 1:2] 10.31 13.03 11.85 11.67 5.43 ...
-##  $ lam0   : num 0.281
-##  $ sig    : num 0.462
-##  $ id.prob: num 0.0758
-##  $ y.full : num [1:80, 1:144] 0 0 0 0 0 0 0 0 0 0 ...
-
-############################--- RUN MODEL ---###########################
-# run for both simulated data and actual data
-Rmodel <- nimbleModel(SCR_bern_sex, constants, sim.data.sex)
-# Rmodel <- nimbleModel(SCR_bern_sex, constants, data.sex)
-
-conf <- configureMCMC(Rmodel)
-conf$setMonitors(c('sigma', 'lambda', 'psi', 'N', 'D', 'psex'))
-# conf$setMonitors(c('sigma', 'lambda', 'psi', 'N', 'D'))
-
-# Use a block update on locations. Saves time.
-conf$removeSamplers('X')
-for(i in 1:M) conf$addSampler(target = paste0('X[', i, ', 1:2]'), 
-                              type = 'RW_block', silent = TRUE)
-
-Rmcmc <- buildMCMC(conf)
-Cmodel <- compileNimble(Rmodel)
-Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
-
-# Run compiled model. Takes ~11 minutes on my machine (M=300, niter=10000) or ~40 minutes (M=500, niter=20000) or ~60 min (M=2000, niter=10000).
-print(Sys.time())
-samplesList <- runMCMC(Cmcmc,
-                       niter = 10000,
-                       nburnin = 5000,
-                       nchains = 3)
-print(Sys.time())
-
-samples <- rbind(samplesList[[1]],
-                 samplesList[[2]],
-                 samplesList[[2]])
-
-str(samples)
-=======
 N.init = apply(y_week_all, c(1,3), sum)
 N.init = ifelse(N.init >=1, 1, 0)
 
@@ -723,7 +513,6 @@ inits = list(N = N.init,
              alpha1 = rnorm(K), 
              beta0 = rnorm(K), 
              beta1 = rnorm(K))
->>>>>>> 97e4434ce9dea8900632e3ebc69e944d827528ab
 
 # Parameters monitored
 params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear", "D") 
@@ -738,9 +527,9 @@ save(nmix.effort.input, file = paste0("./out/nmix.effort.input.Rda"))
 
 # Test with no latent N
 nmixR <- nimbleModel(code = nmix_effort,
-                    data=ydata_all,
-                    constants = constants,
-                    inits = inits)
+                     data=ydata_all,
+                     constants = constants,
+                     inits = inits)
 
 nmixR$calculate()
 nmixR$initializeInfo()
