@@ -256,9 +256,9 @@ nmix.function <- function(simname=simname, M=77, J=J, lambda=lambda, p=p, numsim
 # Sim04 = J = 100, lambda = 1, p = 0.5
 # Sim05 = J = 100, lambda = 1, p = 0.4
 # Sim06 = J = 100, lambda = 1, p = 0.3
-# Sim07 = J = 50, lambda = 0.5, p = 0.5
-# Sim08 = J = 50, lambda = 0.5, p = 0.4
-# Sim09 = J = 50, lambda = 0.5, p = 0.3
+# Sim07 = J = 100, lambda = 0.5, p = 0.5
+# Sim08 = J = 100, lambda = 0.5, p = 0.4
+# Sim09 = J = 100, lambda = 0.5, p = 0.3
 # Sim11 = J = 50, lambda = 2, p = 0.5
 # Sim12 = J = 50, lambda = 2, p = 0.4
 # Sim13 = J = 50, lambda = 2, p = 0.3
@@ -331,9 +331,9 @@ nmix.sim.wide <- pivot_wider(nmix.sim.df, names_from = estimate, values_from = v
 # Sim04 = J = 100, lambda = 1, p = 0.5
 # Sim05 = J = 100, lambda = 1, p = 0.4
 # Sim06 = J = 100, lambda = 1, p = 0.3
-# Sim07 = J = 50, lambda = 0.5, p = 0.5
-# Sim08 = J = 50, lambda = 0.5, p = 0.4
-# Sim09 = J = 50, lambda = 0.5, p = 0.3
+# Sim07 = J = 100, lambda = 0.5, p = 0.5
+# Sim08 = J = 100, lambda = 0.5, p = 0.4
+# Sim09 = J = 100, lambda = 0.5, p = 0.3
 glimpse(nmix.sim.wide)
 
 #- lambda
@@ -417,19 +417,19 @@ trials <- cbind(rep(4,20),rep(4,20))
 sex <- martenGrid.hsdata$sex
 G <- 2 # 2 clusters
 
-
-###--- simulate the data
-N <- round(area[1]*15) # population based on expected density
-N # 44
-
-K <- 4 # number of occasions
-
 # e2dist from scrbook
 e2dist <- function (x, y) {
   i <- sort(rep(1:nrow(y), nrow(x)))
   dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
   matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
 }
+
+
+###--- simulate the data
+N <- round(area[1]*15) # population based on expected density
+N # 44
+
+K <- 4 # number of occasions
 
 # simulate activity centres
 sx1 <- runif(N, xlim[1,1],xlim[1,2])
@@ -539,7 +539,9 @@ y_sim[1:n0[2],,2] <- Y2
 dim(y_sim)
 sum(y_sim)
 
-
+#####################################################################################
+# Model code and constants
+# Bayesian analysis of the model using NIMBLE:
 
 SCR_bern <- nimbleCode({
   sigma ~ dunif(0,100) # uninformative prior
@@ -623,7 +625,7 @@ CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
 tic()
 sim1 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc)
 toc()
-# sim1 = ni = 50000 # 930.06/60 # 15 min
+# sim1 = ni = 50000 # 952.56/60 # 16 min
 str(sim1)
 
 MCMCsummary(sim1, round = 4)
@@ -631,4 +633,148 @@ MCMCsummary(sim1, round = 4)
 chainsPlot(sim1,
            var = c("N", "D", "sigma"))
 
+# mean      sd    2.5%     50%   97.5% Rhat n.eff
+# D[1]  13.0977  5.5887  4.1129 12.3388 25.7058 1.00  1606
+# D[2]  14.3724  5.3685  5.6884 13.6045 26.5288 1.00  1706
+# N[1]  38.2142 16.3059 12.0000 36.0000 75.0000 1.00  1606
+# N[2]  42.2576 15.7845 16.7250 40.0000 78.0000 1.00  1706
+# p0     0.1084  0.0423  0.0427  0.1029  0.2046 1.00  2428
+# psi    0.2025  0.0800  0.0702  0.1941  0.3808 1.00  1631
+# sigma  1.7776  0.4545  1.3205  1.6801  2.8438 1.02   687
+
+
+#####################################################################################
+# Start sets of simulations
+
+# MCMC settings for actual run
+ni <- 50000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+
+# create function to run through simulations
+scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C1, traps2=traps.C2,
+                         N=44, J=20, G=2, p0=0.5, sigma=1.5, K=4, M=200, numsim=25){
+  
+  SCR.sim <- vector('list', numsim)
+  names(SCR.sim) <- paste0('SCR.sim', seq_along(SCR.sim))
+  for(s in seq_along(SCR.sim)){
+    
+    # simulate activity centres
+    sx1 <- runif(N, xlims[1,1],xlims[1,2])
+    sy1 <- runif(N, ylims[1,1],ylims[1,2])
+    S1 <- cbind(sx1, sy1)
+    
+    sx2 <- runif(N, xlims[2,1],xlims[2,2])
+    sy2 <- runif(N, ylims[2,1],ylims[2,2])
+    S2 <- cbind(sx2, sy2)
+    
+    # compute distance matrix
+    D1 <- e2dist(S1, traps1) # distance of each individual from each trap
+    D2 <- e2dist(S2, traps2) # distance of each individual from each trap
+    
+    # Parameter values
+    p0 <- p0   # define parameters of encounter probability
+    sigma <- sigma # scale parameter of half-normal
+    alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
+    
+    # Compute probability of encounter
+    probcap1 <- plogis(-2.5)*exp(-alpha1*D1*D1)
+    probcap2 <- plogis(-2.5)*exp(-alpha1*D2*D2)
+    
+    # Generate the encounters of every individual in every trap
+    ntraps <- J
+    
+    Y1 <- matrix(NA, nrow=N, ncol=ntraps)
+    for(y in 1:nrow(Y1)){
+      Y1[y,] <- rbinom(ntraps,K,probcap1[y,])
+    }
+    
+    Y2 <- matrix(NA, nrow=N, ncol=ntraps)
+    for(y in 1:nrow(Y2)){
+      Y2[y,] <- rbinom(ntraps,K,probcap2[y,])
+    }
+    
+    Y1 = Y1[which(apply(Y1,1,sum)>0),]
+    # dim(Y1) # 1 row for each observed animal
+    
+    Y2 = Y2[which(apply(Y2,1,sum)>0),]
+    # dim(Y2) # 1 row for each observed animal
+    
+    y_sim <- array(0,c(M,J,2)) # needs to be an array, not a list
+    
+    n0 = c(length(which(apply(Y1,1,sum)>0)),length(which(apply(Y2,1,sum)>0)))
+    
+    y_sim[1:n0[1],,1] <- Y1
+    y_sim[1:n0[2],,2] <- Y2
+    # dim(y_sim)
+    # sum(y_sim)
+    # 
+    constants<- list(
+      J = J,
+      area = area,
+      M = M,
+      G = G)
+    
+    # get average capture locations for detected individuals at starting activity center locations
+    st=array(NA, c(M,2,G))
+    for(g in 1:G){
+      for(i in 1:n0[g]){ # augmented
+        if(sum(y_sim[i,,g])==1){
+          st[i,1:2,g] = traps[y_sim[i,,g],,g]
+        }else {
+          st[i,1:2,g] = apply(traps[y_sim[i,,g],,g], 2, mean)
+        }
+      }
+      for(i in (n0[g]+1):M){
+        st[i,1:2,g] = runif(2, 0, 20)
+      }}  
+    
+    
+    data <- list(y = y_sim, traps = traps, trials=rep(4,J))
+    
+    z.init = apply(y_sim, c(1,3), sum)
+    z.init = ifelse(z.init >=1, 1, 0)
+    
+    inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
+    
+    params <- c('sigma', 'p0', 'psi', 'N', 'D')
+    
+    SCR.sim.out <- nimbleMCMC(code = SCR_bern, 
+                              data = data,
+                              constants = constants,
+                              inits = inits,
+                              monitors = params,
+                              niter = ni, 
+                              nburnin = nb,
+                              nchains = nc,
+                              thin=nt,
+                              samplesAsCodaMCMC = TRUE)
+    SCR.sim[[s]] <- MCMCsummary(SCR.sim.out, round = 4)
+  }
+  
+  save("SCR.sim",file=paste0("out/scrsim/out.SCR.",simname,".RData"))
+  return(SCR.sim)
+  
+}
+
+
+# Sim01 = N = 44, p0 = 0.5, sigma = 2
+# Sim02 = N = 44, p0 = 0.4, sigma = 2
+# Sim03 = N = 44, p0 = 0.3, sigma = 2
+# Sim04 = N = 44, p0 = 0.5, sigma = 1.5
+# Sim05 = N = 44, p0 = 0.4, sigma = 1.5
+# Sim06 = N = 44, p0 = 0.3, sigma = 1.5
+# Sim07 = N = 44, p0 = 0.5, sigma = 1
+# Sim08 = N = 44, p0 = 0.4, sigma = 1
+# Sim09 = N = 44, p0 = 0.3, sigma = 1
+
+# running simulations with 2 clusters, each with 20 traps, open for 4 occasions
+# real population at each trap = 44, varying p0 and sigma
+scr.Sim01 <- scr.function(simname=c("Sim01"), N=44, J=20, G=2, K=4, p0=0.5, sigma=2, numsim=25)
+scr.Sim02 <- scr.function(simname=c("Sim02"), N=44, J=20, G=2, K=4, p0=0.4, sigma=2, numsim=25)
+scr.Sim03 <- scr.function(simname=c("Sim03"), N=44, J=20, G=2, K=4, p0=0.3, sigma=2, numsim=25)
+scr.Sim04 <- scr.function(simname=c("Sim04"), N=44, J=20, G=2, K=4, p0=0.5, sigma=1.5, numsim=25)
+scr.Sim05 <- scr.function(simname=c("Sim05"), N=44, J=20, G=2, K=4, p0=0.4, sigma=1.5, numsim=25)
+scr.Sim06 <- scr.function(simname=c("Sim06"), N=44, J=20, G=2, K=4, p0=0.3, sigma=1.5, numsim=25)
+scr.Sim07 <- scr.function(simname=c("Sim07"), N=44, J=20, G=2, K=4, p0=0.5, sigma=1, numsim=25)
+scr.Sim08 <- scr.function(simname=c("Sim08"), N=44, J=20, G=2, K=4, p0=0.4, sigma=1, numsim=25)
+scr.Sim08 <- scr.function(simname=c("Sim09"), N=44, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=25)
 
