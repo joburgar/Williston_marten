@@ -19,7 +19,7 @@
 .libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","scrbook","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc")
+list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -197,7 +197,8 @@ Cairo(file="out/weekly_det_1999.PNG",type="png",width=2000,height=2000,pointsize
 plot(colSums(retro.data.out[[4]][[1]]), ylab="Weeky marten capture count", xlab="Week", main="Live Capture Data - 1999/00")
 dev.off()
 # 1999/00 detections high for first 3 weeks and then drop off - unlikley for models to converge
-
+# different sampling effort in 1999/00 - concentraing only on fisher and moving traps to target recapturing fisher
+# 1998/99 might also be worth ignoring as trapping effort became much more focused on fisher
 #####################################################################################
 
 #---(begin AHMnimble header)---
@@ -311,7 +312,7 @@ nmix.retro.plot.lambda <- ggplot(data = retro.out[retro.out$param=="lambda" & re
   geom_linerange(aes(x = Year, y = mean*100, ymin=`2.5%`*100, ymax= `97.5%`*100)) +
   xlab("Year") +
   ylab("Total Estimated Abundance (i.e., lambda * 100)")+
-  ggtitle("Williston Basin marten density estimates;\nlive trap data fit to n-mixture models")
+  ggtitle("Williston Basin marten abundance estimates;\nlive trap data fit to n-mixture models")
 
 Cairo(file="out/nmix.retro.plot.lambda.PNG",
       type="png",
@@ -365,97 +366,53 @@ dev.off()
 
 
 #####################################################################################
-
-# Section6p4_code <- nimbleCode( {
-#   # Priors
-#   for(k in 1:3) {                # Loop over 3/4 years
-#     alpha0[k] ~ dunif(-10, 10) # Detection intercepts
-#     alpha1[k] ~ dunif(-10, 10) # Detection slopes
-#     beta0[k] ~ dunif(-10, 10)  # Abundance intercepts
-#     beta1[k] ~ dunif(-10, 10)  # Abundance slopes
-#   }
-#   
-#   # Likelihood
-#   # Ecological model for true abundance
-#   for (i in 1:M){
-#     N[i] ~ dpois(lambda[i])
-#     log(lambda[i]) <- beta0[year[i]] + beta1[year[i]]
-#     # Some intermediate derived quantities
-#     # critical[i] <- step(2-N[i])# yields 1 whenever N is 2 or less
-#     # z[i] <- step(N[i]-0.5)     # Indicator for occupied site
-#     # Observation model for replicated counts
-#     for (j in 1:J){
-#       C[i,j] ~ dbin(p[i,j], N[i])
-#       logit(p[i,j]) <- alpha0[j] + alpha1[j] * effort[i,j]
-#     }
-#   }
-#   
-#   # Derived quantities; unnecessary when running for inference purpose
-#   Nocc <- sum(z[1:M])         # Number of occupied sites among sample of M
-#   Ntotal <- sum(N[1:M])       # Total population size at M sites combined
-#   Nyear[1] <- sum(N[1:77])  # Total abundance for sites in year 1 (1996-1997) # 78+105
-#   Nyear[2] <- sum(N[78:183]) # Total abundance for sites in year 2 (1997-1998) # 105
-#   Nyear[3] <- sum(N[184:283])# Total abundance for sites in year 3 (1998-1999) # 101
-#   # Nyear[4] <- sum(N[284:362])# Total abundance for sites in year 4 (1999-2000)   # 79+286
-#   # for(k in 1:M){         # Predictions of lambda and p ...
-#   #   for(level in 1:3){    #    ... for each level of year and effort factors
-#   #     lam.pred[k, level] <- exp(beta0[level] + beta1[level])
-#   #     logit(p.pred[k, level]) <- alpha0[level] + alpha1[level] * Xeffort[k]
-#   #   }
-#   # }
-#   # N.critical <- sum(critical[1:M]) # Number of populations with critical size
-# })
-
-# M = traps
-# J = occasions
-# K = years
-
-
+# from Daniel Eacker (google group listserv initially)
 nmix_effort <- nimbleCode( {
   # Priors - separate for each year to be able to monitor output
-  for(k in 1:K) {                # Loop over 3 years
-    alpha0[k] ~ dunif(-10, 10) # Detection intercepts
-    alpha1[k] ~ dunif(-10, 10) # Detection slopes
-    beta0[k] ~ dunif(-10, 10)  # Abundance intercepts
-    beta1[k] ~ dunif(-10, 10)  # Abundance slopes
-    
-    # Likelihood
-    # Ecological model for true abundance
-    for (i in 1:length(M)[1]){
-      N[i,k] ~ dpois(lambda[i,k])
-      log(lambda[i,k]) <- beta0[year[i,k]] + beta1[year[i,k]]
-      
-      # Observation model for replicated counts 
-      for (j in 1:J){
-        C[i,j,k] ~ dbin(p[i,j,k], N[i,k])
-        logit(p[i,j,k]) <- alpha0[j,k] + alpha1[j,k] * effort[i,j,k]
-      }
-    }
+  alpha0 ~ dnorm(0, 0.5) # intercept on detection probability (a less informative prior perhaps), try plotting: hist(plogis(rnorm(10000,0,sd=sqrt(2))))
+  beta0 ~ dnorm(0, 0.1) # intercept on abundance
+  alpha2 ~ dnorm(0, 0.001)
+  alpha1[1] <- 0 # corner-point constraint for year effects on detection probability
+  beta1[1] <- 0 # corner-point constraint for year effects on latent abundance
+  
+  for(k in 2:K) {                # Loop over 2 years (this is equivalent to coding separate indicator variables)
+    beta1[k] ~ dunif(-8,8) # year effects on latent abundance
+    alpha1[k] ~ dunif(-8,8) # year effects on  on detection probability
   }
   
-  Nyear[k] <- sum(z[1:M,k])         
-  D[k] <- Nyear[k]/area
-}
-)
+  # Likelihood
+  # Ecological model for true abundance
+  for(k in 1:K) {
+    for (i in 1:M[k]){ # length(M)[1] - you needed to use a nested indexing here since there are a different number of sites in different years
+      N[i,k] ~ dpois(lambda[i,k])
+      log(lambda[i,k]) <- beta0 + beta1[k]
+      # Observation model for replicated counts
+      for (j in 1:J[k]){
+        y[i,j,k] ~ dbin(p[i,j,k], N[i,k]) # I tend to call the data "y", but this isn't a big deal
+        logit(p[i,j,k]) <- alpha0 + alpha1[k] * alpha2*effort[i,j,k] # I use a corner-point constraint to model the effects of year
+      }
+    }
+    # Derive density and total abundance in year k
+    Nyear[k] <- sum(N[1:M[k],k]) # I don't believe you have this latent state in this model (N is the latent state, the unobserved abundance)        
+    # D[k] <- Nyear[k]/area # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
+  }
+})
 
-# compareMCMCs for comparing jags/BUGS and nimble - calls MCMCsuite
-# needs modelcode to be exactly the same
+
+###--- wrangle data
 
 # To run as multi-year model, treat each year as a factor, and create arrays with slice for each year
 y_week_9697 <- as.matrix(retro.data.out[[1]][[1]])
 y_week_9798 <- as.matrix(retro.data.out[[2]][[1]])
 y_week_9899 <- as.matrix(retro.data.out[[3]][[1]])
-y_week_9900 <- as.matrix(retro.data.out[[4]][[1]])
 # dimensions are traps by occasions
 
 # M = traps
 # J = occasions
 # K = years
-# M <- c(nrow(y_week_9697),nrow(y_week_9798),nrow(y_week_9899),nrow(y_week_9900)) # number of traps
-# J <- c(ncol(y_week_9697),ncol(y_week_9798),ncol(y_week_9899),ncol(y_week_9900)) # number of occasions
 M <- c(nrow(y_week_9697),nrow(y_week_9798),nrow(y_week_9899)) # number of traps
 J <- c(ncol(y_week_9697),ncol(y_week_9798),ncol(y_week_9899)) # number of occasions
-K <- 3 # try first with 3 years to see if it will run 
+K <- 3 # try first with 3 years as omitting 1999/00
 
 y_week_all <- array(c(y_week_9697, y_week_9798, y_week_9899), dim=c(max(M),max(J),K))
 dim(y_week_all)
@@ -468,54 +425,86 @@ year[,1] <- c(rep(1,M[1]),rep(NA,max(M)-M[1]))
 year[,2] <- c(rep(2,M[2]),rep(NA,max(M)-M[2]))
 year[,3] <- c(rep(3,M[3]),rep(NA,max(M)-M[3]))
 
-
 # create effort covariate
 effort_9697 <- as.matrix(retro.data.out[[1]][[3]])
 effort_9798 <- as.matrix(retro.data.out[[2]][[3]])
 effort_9899 <- as.matrix(retro.data.out[[3]][[3]])
-effort_9900 <- as.matrix(retro.data.out[[4]][[3]])
 
 # effort_all <- array(c(effort_9697, effort_9798, effort_9899), dim=c(max(M),max(J),K))
 effort_all <- array(c(effort_9697, effort_9798), dim=c(max(M),max(J),K))
 dim(effort_all)
 sum(effort_all)
 
+# I use the scale by 2 SDs here following Gelman (2006):
+# simple function to standardize variables
+std2=function(x){
+    (x - mean(x,na.rm=TRUE))/(2*sd(x,na.rm=TRUE))
+  }
+effort_all = std2(effort_all)
 
-# Bundle data
-# test data
-y_week_all.test <- y_week_all[1:min(M),1:min(J),1:3]
-effort_all.test <- effort_all[1:min(M),1:min(J),1:3]
-year.test <- year[1:77,]
-ydata_all.test <- list(C=y_week_all.test, effort=effort_all.test, year=year.test)
+# ### note that I just used your ".Rda" - note that R data files are now saved with the extention (".Rdata"), but the old .Rda still works
+# load("out/nmix.effort.input.Rda")
+# str(nmix.effort.input)
+# constants = nmix.effort.input[[1]]
+# ydata_all = nmix.effort.input[[2]][1:2] # I didn't need the year variable
+# names(ydata_all)[1] = "y"
 
-constants.test <- list(
-  J = min(J),
-  area = nm.area,
-  M = min(M),
-  K = K)
+str(ydata_all)
+str(data)
+constants <- list(J = J, 
+                  M = M,
+                  K = K)
 
-# actual data
-ydata_all <- list(C=y_week_all, effort=effort_all, year=year)
-
-
-constants <- list( # not sure how this works as need to have constants as constants??
-  J = J,
-  area = nm.area,
-  M = M,
-  K = K)
+data <- list(y = y_week_all, 
+             effort = effort_all)
 
 
-N.init = apply(y_week_all, c(1,3), sum)
-N.init = ifelse(N.init >=1, 1, 0)
+N.init = apply(y_week_all, c(1,3), function(x) max(x, na.rm=TRUE)+1)
+N.init[is.na(N.init)] <- 1 # to deal with NA's
 
-inits = list(N = N.init, 
-             alpha0 = rnorm(K), 
-             alpha1 = rnorm(K), 
-             beta0 = rnorm(K), 
-             beta1 = rnorm(K))
+inits = list(N = N.init,
+             alpha0 = rnorm(1,0,0.5),
+             alpha1 = c(NA,rnorm(2,0,0.5)),
+             alpha2 = rnorm(1,0,0.5),
+             beta0 = rnorm(1,0,0.5),
+             beta1 = c(NA,rnorm(2,0,0.5)))
 
 # Parameters monitored
-params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear", "D") 
+params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear")
+
+# MCMC settings to test
+# ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
+# MCMC settings
+nc <- 3   ;   ni <- 22000   ;   nb <- 2000   #nt <- 10
+
+# Test with no latent N
+nmixR <- nimbleModel(code = nmix_effort,
+                     data=data,
+                     constants = constants,
+                     inits = inits)
+
+nmixR$calculate()
+nmixR$initializeInfo()
+
+# compile model to C++#
+nmixC <- compileNimble(nmixR, showCompilerOutput = F)
+# MCMC sampler configurations
+mcmcspec<-configureMCMC(nmixR, monitors=params)
+# build the MCMC specifications
+nmixMCMC <- buildMCMC(mcmcspec)
+# complile the code in S+
+CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
+# run MCMC
+tic()
+nmix.results1 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
+toc()
+
+str(nmix.results1)
+MCMCsummary(nmix.results1,round = 4)
+MCMCsummary(nmix.results2,round = 4)
+
+
+
 
 # MCMC settings to test
 ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
@@ -527,7 +516,7 @@ save(nmix.effort.input, file = paste0("./out/nmix.effort.input.Rda"))
 
 # Test with no latent N
 nmixR <- nimbleModel(code = nmix_effort,
-                     data=ydata_all,
+                     data=list(y_week_all, effort_all),
                      constants = constants,
                      inits = inits)
 
