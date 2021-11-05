@@ -16,7 +16,7 @@
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 13-Oct-2021
 #####################################################################################
 
-.libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
+.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
 list.of.packages <- c("tidyverse","parallel","unmarked", "nimbleEcology","nimble", "scrbook","nimbleSCR","basicMCMCplots","coda","Cairo")
@@ -32,13 +32,6 @@ rm(list.of.packages, new.packages) # for housekeeping
 writeLines('PATH="${RTOOLS40_HOME}\\usr\\bin;${PATH}"', con = "~/.Renviron")
 getwd()
 
-################################################################################
-e2dist <- function (x, y) {  # Function from scrbook package to calculate the distance between 
-  # locations in 2 matrices.
-  i <- sort(rep(1:nrow(y), nrow(x)))
-  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
-  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
-}
 ################################################################################
 
 # Some of the NIMBLE examples generate html pages with comparisons
@@ -251,6 +244,7 @@ SCR_bern <- nimbleCode({
 load("out/MartenData_2020.Rda")
 load("out/MartenGridData_2020.Rda")
 
+# all data
 J <- marten.hsdata$J
 area <- marten.hsdata$area
 xlim <- marten.hsdata$xlim
@@ -260,6 +254,7 @@ edf <- marten.hsdata$edf
 trials <- rep(4,nrow(traps))
 sex <- marten.hsdata$sex
 
+# just marten cells
 J <- martenGrid.hsdata$J
 area <- martenGrid.hsdata$area
 xlim <- martenGrid.hsdata$xlim
@@ -323,7 +318,8 @@ lambda0 <- 0.1
 J <- nrow(traps) # nb of traps
 K <- length(unique(edf$Occ)) # nb capture occasions
 
-M <- 2000
+M <- 2*N
+M # 820
 
 # Now let's speed it up by summing over all 4 nights for a binomial dist.
 yy <- array(NA, c(N, J, K))
@@ -335,7 +331,7 @@ for(j in 1:J) {
   }
 }
 n_all <- apply(yy, 1:2, sum)
-sum(n_all) # 353 animals in the detection matrix
+sum(n_all) # 166 animals in the detection matrix
 dim(n_all)
 
 M_rest <- array(0, c(M-nrow(n_all), ncol(n_all)))
@@ -351,12 +347,86 @@ sim.data <- list(y = sim_all,
                      z =  c(rep(1, max(nrow(n_all))), rep(NA, M-max(nrow(n_all)))))
 
 
+SCR_bern <- nimbleCode({
+  sigma ~ dunif(0,1000) # uninformative prior
+  psi ~ dbeta(1,1)
+  psex ~ dbeta(1,1)
+  lambda ~ dunif(0,20)
+  
+  for(i in 1:M){
+    sex[i] ~ dbern(psex)
+    z[i] ~ dbern(psi)
+    X[i,1]~dunif(xlim[1],xlim[2])
+    X[i,2]~dunif(ylim[1],ylim[2])
+    d2[i,1:J]<- (X[i,1]-traps[1:J,1])^2 + (X[i,2]-traps[1:J,2])^2
+    # Because detectability didn't vary per trap night we aggregated!
+    # For comparision to Poisson we will use a hazard half normal detection function.
+    # That way we are using the same lambda, encounter rate.
+    # See Augustine paper as he does this as well.
+    p[i,1:J]<- z[i]*(1-exp(-lambda*exp(-d2[i, 1:J]/(2*sigma*sigma) )) )
+    #From Daniel Turek in nimbleSCR package. Fast binomial! Avoids loopin.
+    y[i,1:J] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J])
+  }
+  N <- sum(z[1:M])
+  D <- N/area
+})
+
+constants<- list(
+  J = nrow(traps),
+  area = area,
+  xlim = xlim,
+  ylim = ylim,
+  traps = traps, 
+  M = M,
+  trials = rep(4, nrow(traps))
+)
+
+data <- list(
+  z =  c(rep(1, max(edf$individualID_2016)), rep(NA, M-max(edf$individualID_2016))),
+  sex = c(sex, rep(NA, M-max(edf$individualID_2016))),	# Note 0 is male and 1 is female.
+  y = y_all
+)
+
+
+Rmodel <- nimbleModel(SCR_bern, constants, sim.data.sex)
+conf <- configureMCMC(Rmodel)
+conf$setMonitors(c('sigma', 'lambda', 'psi', 'N', 'D', 'psex'))
+
+# # Use a block update on locations. Saves time.
+# conf$removeSamplers('X')
+# for(i in 1:M) conf$addSampler(target = paste0('X[', i, ', 1:2]'), 
+#                               type = 'RW_block', silent = TRUE)
+
+Rmcmc <- buildMCMC(conf)
+Cmodel <- compileNimble(Rmodel)
+Cmcmc <- compileNimble(Rmcmc, project = Rmodel)
+Cmcmc$run(10000)
+mvSamples <- Cmcmc$mvSamples
+samples <- as.matrix(mvSamples)
+out <- mcmc(samples[-(1:5000),])
+plot(out[,c('N', 'D', 'psex')])
+dev.new()
+plot(out[,c('sigma', 'lambda')])
+
+
+
 ###--- Inits
 
 # Initial values in NIMBLE must be carefully tailored to ensure that all nodes,
 # particularly for latent y.true, begin at reasonable initial values. Any error
 # here could invalidate the results
-ys<-apply(yaug,c(1,2),sum)
+
+################################################################################
+e2dist <- function (x, y) {  # Function from scrbook package to calculate the distance between 
+  # locations in 2 matrices.
+  i <- sort(rep(1:nrow(y), nrow(x)))
+  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
+  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
+}
+################################################################################
+
+
+# ys<-apply(yaug,c(1,2),sum)
 s.start <- cbind(runif(M, xlim[1], xlim[2]), runif(M, ylim[1], ylim[2]))
 d <- e2dist(s.start[1:M,], traps)
 lam0s<- runif(1,0.1,0.3)
@@ -379,15 +449,15 @@ for (j in 1:J) {
   } # end of k
 }   # end of j
 
-yis<-apply(yi,c(1,2),sum) + apply(yaug,c(1,2),sum)
+yis<-apply(yi,c(1,2),sum) #+ apply(yaug,c(1,2),sum)
 zst<-apply(yis, 1, sum); zst[zst>0]<-1
 id.prob.s<-sum(yaug)/(sum(yaug)+sum(nnid))
 
-inits <-   list(z=zst,             # z inits
+inits <-   list(z=rep(1,M),             # z inits
                 s=s.start,         # s inits
                 lam0=lam0s,        # baseline detection rate
                 sig=sigs,          # movement parameter
-                id.prob=id.prob.s, # detection rate
+                id.prob=0.0758, # detection rate
                 y.full=yis)        # latent true histories
 str(inits)
 ## List of 6
@@ -400,8 +470,8 @@ str(inits)
 
 ############################--- RUN MODEL ---###########################
 # run for both simulated data and actual data
-# Rmodel <- nimbleModel(SCR_bern_sex, constants, sim.data.sex)
-Rmodel <- nimbleModel(SCR_bern_sex, constants, data.sex)
+Rmodel <- nimbleModel(SCR_bern_sex, constants, sim.data.sex)
+# Rmodel <- nimbleModel(SCR_bern_sex, constants, data.sex)
 
 conf <- configureMCMC(Rmodel)
 conf$setMonitors(c('sigma', 'lambda', 'psi', 'N', 'D', 'psex'))
