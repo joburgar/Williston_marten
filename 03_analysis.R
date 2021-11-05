@@ -475,7 +475,7 @@ params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear")
 # MCMC settings to test
 # ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 # MCMC settings
-nc <- 3   ;   ni <- 22000   ;   nb <- 2000   #nt <- 10
+nc <- 3   ;   ni <- 50000   ;   nb <- 5000   #nt <- 10
 
 # Test with no latent N
 nmixR <- nimbleModel(code = nmix_effort,
@@ -496,8 +496,10 @@ nmixMCMC <- buildMCMC(mcmcspec)
 CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
 # run MCMC
 tic()
-nmix.results1 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
+nmix.results2 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
 toc()
+# results1 = ni = 22000, nb = 2000
+# results2 = ni = 50000, nb = 5000
 
 str(nmix.results1)
 MCMCsummary(nmix.results1,round = 4)
@@ -505,46 +507,10 @@ MCMCsummary(nmix.results2,round = 4)
 
 
 
-
-# MCMC settings to test
-ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
-# MCMC settings
-# nc <- 3   ;   ni <- 22000   ;   nb <- 2000   ;   nt <- 10
-
-nmix.effort.input <- list(constants, ydata_all)
-save(nmix.effort.input, file = paste0("./out/nmix.effort.input.Rda"))
-
-# Test with no latent N
-nmixR <- nimbleModel(code = nmix_effort,
-                     data=list(y_week_all, effort_all),
-                     constants = constants,
-                     inits = inits)
-
-nmixR$calculate()
-nmixR$initializeInfo()
-
-# compile model to C++#
-nmixC <- compileNimble(nmixR, showCompilerOutput = F)
-# MCMC sampler configurations
-mcmcspec<-configureMCMC(nmixR, monitors=params)
-# build the MCMC specifications
-nmixMCMC <- buildMCMC(mcmcspec)
-# complile the code in S+
-CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
-# run MCMC
-tic()
-nmix.results1 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
-toc()
-
-
-
-save("nmix.results1",file=paste0("out/retro_weekly_effort_mcmcoutput.RData"))
-str(nmix.results1)
-
 MCMCsummary(nmix.results1[,1:3], round = 4)
 # saved traceplots
 chainsPlot(nmix.results1,
-           var = c("N", "D"))
+           var = c("Nyear", "alpha0"))
 
 
 require(mcmcplots)
@@ -696,7 +662,7 @@ params <- c('sigma', 'p0', 'psi', 'N', 'D')
 # MCMC settings to test
 # ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 # MCMC settings for actual run
-ni <- 100000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+ni <- 50000  ;   nb <- 5000   ;   nc <- 3 #  nt <- 20 
 
 # Test with no latent N
 scrR <- nimbleModel(code = SCR_bern,
@@ -717,7 +683,7 @@ scrMCMC <- buildMCMC(mcmcspec)
 CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
 # run MCMC
 tic()
-results3 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc, setSeed = 500)
+results3 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
 toc()
 # results1 = ni = 25000 # 482.63/60 # 8 min # poor mixing, don't go with these few ni
 # results2 = ni = 50000 # 930.06/60 # 15 min # better mixing
