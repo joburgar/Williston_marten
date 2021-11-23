@@ -475,7 +475,7 @@ params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear")
 # MCMC settings to test
 # ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 # MCMC settings
-nc <- 3   ;   ni <- 50000   ;   nb <- 5000   #nt <- 10
+nc <- 3   ;   ni <- 750000   ;   nb <- 25000   #nt <- 10
 
 # Test with no latent N
 nmixR <- nimbleModel(code = nmix_effort,
@@ -496,20 +496,29 @@ nmixMCMC <- buildMCMC(mcmcspec)
 CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
 # run MCMC
 tic()
-nmix.results2 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
+nmix.results3 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
 toc()
 # results1 = ni = 22000, nb = 2000
 # results2 = ni = 50000, nb = 5000
+# results3 = ni = 75000, nb = 25000; 13533.24 / 60 = 225 minutes to run
+
+save("nmix.results3",file=paste0("out/nmixeffort_results3.RData"))
 
 str(nmix.results1)
-MCMCsummary(nmix.results1,round = 4)
-MCMCsummary(nmix.results2,round = 4)
+MCMCsummary(nmix.results2,round = 4) # 921.76/60 # 15 min
+MCMCsummary(nmix.results3,round = 4) 
 
+sum(y_week_all[,,1]) # 352 marten captures
+sum(y_week_all[,,2]) # 248
+sum(y_week_all[,,3]) # 287
 
+sum(effort_9697) # 3335 days traps were open
+sum(effort_9798) # 2925
+sum(effort_9899) # 1907
 
 MCMCsummary(nmix.results1[,1:3], round = 4)
 # saved traceplots
-chainsPlot(nmix.results1,
+chainsPlot(nmix.results2,
            var = c("Nyear", "alpha0"))
 
 
