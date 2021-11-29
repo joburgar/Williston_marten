@@ -77,7 +77,7 @@ if(!exists('outputDirectory')) {
 .libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo")
+list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo","doParallel")
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
