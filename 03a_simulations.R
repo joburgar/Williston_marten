@@ -79,7 +79,7 @@ if(!exists('outputDirectory')) {
 .libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
-list.of.packages <- c("tidyverse","nimble","mcmcplots","MCMCvis","coda","Cairo","doParallel")
+list.of.packages <- c("tidyverse","nimble","nimbleSCR","mcmcplots","MCMCvis","coda","Cairo","doParallel")
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
@@ -648,7 +648,7 @@ chainsPlot(sim1,
 
 # MCMC settings for actual run
 ni <- 50000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
-count = 1
+
 # create function to run through simulations
 scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C1, traps2=traps.C2,
                          N=50, J=20, G=2, p0=0.5, sigma=1.5, K=4, M=200){
@@ -765,12 +765,14 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
 # Sim07 = N = 50, p0 = 0.5, sigma = 1
 # Sim08 = N = 50, p0 = 0.4, sigma = 1
 # Sim09 = N = 50, p0 = 0.3, sigma = 1
+# Sim10 = N = 100, p0 = 0.5, sigma = 2
+
 
 # running simulations with 2 clusters, each with 20 traps, open for 4 occasions
 # real population at each trap = 44, varying p0 and sigma
 for(i in 5:10){
-  sim.out <- scr.function(simname=c("Sim01"), N=50, J=20, G=2, K=4, p0=0.5, sigma=2)
-  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim01","_",i,".RData"))
+  sim.out <- scr.function(simname=c("Sim10"), N=100, J=20, G=2, K=4, p0=0.5, sigma=2)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim10","_",i,".RData"))
 }
 
 for(i in 2:10){
@@ -787,4 +789,85 @@ scr.Sim06 <- scr.function(simname=c("Sim06"), N=50, J=20, G=2, K=4, p0=0.3, sigm
 scr.Sim07 <- scr.function(simname=c("Sim07"), N=50, J=20, G=2, K=4, p0=0.5, sigma=1, numsim=10)
 scr.Sim08 <- scr.function(simname=c("Sim08"), N=50, J=20, G=2, K=4, p0=0.4, sigma=1, numsim=10)
 scr.Sim08 <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=10)
+
+
+###---
+# Load simulated runs
+# load("out/scrsim/SCR.sim.out_Sim01_1.RData")
+list.sims <- list.files("out/scrsim/")
+
+list.sims01 <- list.sims[grepl("Sim01",list.sims)]
+
+
+scrsim01.out <- vector('list', length(list.sims01))
+for(i in 1:length(list.sims01)){
+  load(paste0("out/scrsim/",list.sims01[i]))
+  scrsim01.out[[i]] <- sim.out
+}
+
+scrsim01.df <- as.data.frame(unlist(scrsim01.out))
+nrow(scrsim01.df)
+head(scrsim01.df)
+scrsim01.df[1:14,]
+colnames(scrsim01.df)[1] <- c("value")
+scrsim01.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=7, time=length(list.sims01))
+scrsim01.df$param <- rep(c("D1","D2","N1","N2","p0","psi","sigma"),each=1, time=7*length(list.sims01))
+scrsim01.df$Sim <- rep(paste0("Sim0",seq_len(length(list.sims01))),each=7*7)
+scrsim01.df$Run <- rep(paste0("Run", seq_len(10)),each=7*7)
+scrsim01.wide <- pivot_wider(scrsim01.df, names_from = estimate, values_from = value)
+
+glimpse(scrsim01.wide)
+
+#- Density
+50/area
+
+scr.sim.plot.density <- ggplot(data = scrsim01.wide[grepl("D",scrsim01.wide$param),]) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_point(aes(x = Run, y = mean), size=2) +
+  geom_hline(yintercept = c(50/area), col="grey") +
+  geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Mean Density (marten per 100 sq km")+
+  ggtitle("Simulations of SCR models in the Williston Basin (2020):\n2 clusters, 4 occassions, N=50, p0=0.5, sigma=2")+
+  facet_wrap(~ param)
+
+Cairo(file="out/scr.sim.plot.density.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+scr.sim.plot.density
+dev.off()
+
+#- p
+scr.sim.plot.p0sigma <- ggplot(data = scrsim01.wide[grepl("p0|sigma",scrsim01.wide$param),]) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_point(aes(x = Run, y = mean), size=2) +
+  geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Mean of the Estimated Parameter")+
+  ggtitle("Simulations of SCR models in the Williston Basin (2020):\n2 clusters, 4 occassions, N=50, p0=0.5, sigma=2")+
+  facet_wrap(~ param, scales="free_y")
+
+Cairo(file="out/scr.sim.plot.p0sigma.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+scr.sim.plot.p0sigma
+dev.off()
+
+
+nmix.sim.df[1:25,] 
+mean.lambda <- 0.9385
+M*mean.lambda # estimated N
+sum(N) # compared to true N
 
