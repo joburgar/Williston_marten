@@ -77,6 +77,7 @@ if(!exists('outputDirectory')) {
 # ------------------------------------------------------------------------
 
 .libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
+# .libPaths("C:/Program Files/R/R-4.0.5/library") # to ensure reading/writing libraries from C drive
 
 # Load Packages
 list.of.packages <- c("tidyverse","nimble","nimbleSCR","mcmcplots","MCMCvis","coda","Cairo","doParallel")
@@ -471,56 +472,6 @@ sum(Y1)
 sum(Y2)
 sum(N)
 
-# View(simSCR0)
-# function to simulate data
-# function (N = 100, K = 20, alpha0 = -2.5, sigma = 0.5, discard0 = TRUE, 
-#           array3d = FALSE, rnd = NULL) 
-# {
-#   if (!is.null(rnd)) 
-#     set.seed(rnd)
-#   traplocs <- cbind(sort(rep(1:5, 5)), rep(1:5, 5))
-#   Dmat <- e2dist(traplocs, traplocs)
-#   ntraps <- nrow(traplocs)
-#   plot(traplocs)
-#   buffer <- 2
-#   Xl <- min(traplocs[, 1] - buffer)
-#   Xu <- max(traplocs[, 1] + buffer)
-#   Yl <- min(traplocs[, 2] - buffer)
-#   Yu <- max(traplocs[, 2] + buffer)
-#   sx <- runif(N, Xl, Xu)
-#   sy <- runif(N, Yl, Yu)
-#   S <- cbind(sx, sy)
-#   D <- e2dist(S, traplocs)
-#   alpha1 <- 1/(2 * sigma * sigma)
-#   probcap <- plogis(alpha0) * exp(-alpha1 * D * D)
-#   Y <- matrix(NA, nrow = N, ncol = ntraps)
-#   for (i in 1:nrow(Y)) {
-#     Y[i, ] <- rbinom(ntraps, K, probcap[i, ])
-#   }
-#   if (discard0) {
-#     totalcaps <- apply(Y, 1, sum)
-#     Y <- Y[totalcaps > 0, ]
-#   }
-#   dimnames(Y) <- list(1:nrow(Y), paste("trap", 1:ncol(Y), 
-#                                        sep = ""))
-#   if (array3d) {
-#     Y <- array(NA, dim = c(N, ntraps, K))
-#     for (i in 1:nrow(Y)) {
-#       for (j in 1:ntraps) {
-#         Y[i, j, 1:K] <- rbinom(K, 1, probcap[i, j])
-#       }
-#     }
-#     if (discard0) {
-#       Y2d <- apply(Y, c(1, 2), sum)
-#       ncaps <- apply(Y2d, 1, sum)
-#       Y <- Y[ncaps > 0, , ]
-#     }
-#   }
-#   list(Y = Y, traplocs = traplocs, xlim = c(Xl, Xu), ylim = c(Yl,Yu), N = N, alpha0 = alpha0, alpha1 = alpha1, sigma = sigma, 
-#        K = K)
-# }
-
-
 
 # get rid of zeros so observed animals come first
 Y1 = Y1[which(apply(Y1,1,sum)>0),]
@@ -710,7 +661,7 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
     y_sim[1:n0[2],,2] <- Y2use
     # dim(y_sim)
     # sum(y_sim)
-    # 
+    # class(traps)
     constants<- list(
       J = J,
       area = area,
@@ -724,7 +675,7 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
         if(sum(y_sim[i,,g])==1){
           st[i,1:2,g] = traps[y_sim[i,,g],,g]
         }else {
-          st[i,1:2,g] = apply(traps[y_sim[i,,g],,g], 2, mean)
+          st[i,1:2,g] = apply(as.matrix(traps[y_sim[i,,g],,g]), 2, mean)
         }
       }
       for(i in (n0[g]+1):M){
@@ -770,14 +721,14 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
 
 # running simulations with 2 clusters, each with 20 traps, open for 4 occasions
 # real population at each trap = 44, varying p0 and sigma
-for(i in 5:10){
-  sim.out <- scr.function(simname=c("Sim10"), N=100, J=20, G=2, K=4, p0=0.5, sigma=2)
-  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim10","_",i,".RData"))
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim04"), N=50, J=20, G=2, K=4, p0=0.5, sigma=1.5)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim04","_",i,".RData"))
 }
 
-for(i in 2:10){
-  sim.out <- scr.function(simname=c("Sim02"), N=50, J=20, G=2, K=4, p0=0.4, sigma=2)
-  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim02","_",i,".RData"))
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim03"), N=50, J=20, G=2, K=4, p0=0.3, sigma=2)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim03","_",i,".RData"))
 }
 
 scr.Sim01 <- scr.function(simname=c("Sim01"), N=50, J=20, G=2, K=4, p0=0.5, sigma=2, numsim=10)
@@ -788,7 +739,7 @@ scr.Sim05 <- scr.function(simname=c("Sim05"), N=50, J=20, G=2, K=4, p0=0.4, sigm
 scr.Sim06 <- scr.function(simname=c("Sim06"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1.5, numsim=10)
 scr.Sim07 <- scr.function(simname=c("Sim07"), N=50, J=20, G=2, K=4, p0=0.5, sigma=1, numsim=10)
 scr.Sim08 <- scr.function(simname=c("Sim08"), N=50, J=20, G=2, K=4, p0=0.4, sigma=1, numsim=10)
-scr.Sim08 <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=10)
+scr.Sim09 <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=10)
 
 
 ###---
