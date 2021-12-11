@@ -491,8 +491,8 @@ round(area*35) # 130 population based on expected density at 35 per 100 sq km
 
 ###--- for all models
 K <- 4 # number of occasions
-N = 130
-M = 300
+N = 56
+M = 200
 J = 42
 p0 <- 0.5   # define parameters of encounter probability
 sigma <- 1.5 # scale parameter of half-normal
@@ -504,7 +504,7 @@ ni <- 50000  ;   nb <- 5000   ;   nc <- 3
 # alter N as per 15, 25 and 35 marten per 100 sq km density
 # will also need to change output save at end of loop
 
-for(i in 1:10){
+for(t in 1:10){
   # simulate activity centres 
   sx <- runif(N, xlim[1],xlim[2])
   sy <- runif(N, ylim[1],ylim[2])
@@ -562,8 +562,136 @@ for(i in 1:10){
                           samplesAsCodaMCMC = TRUE)
   
   SCR.sim <- MCMCsummary(SCR.sim.out, round = 4)
-  save("SCR.sim", file=paste0("out/scrsim_Kara/SCR_SimN130","_",i,".RData"))
+  save("SCR.sim", file=paste0("out/scrsim_Kara/SCR_SimN56","_",t,".RData"))
   }
+
+
+###--- for all models
+K <- 4 # number of occasions
+N = 93
+M = 200
+J = 42
+p0 <- 0.5   # define parameters of encounter probability
+sigma <- 1.5 # scale parameter of half-normal
+
+params <- c('sigma', 'p0', 'psi', 'N', 'D')
+ni <- 50000  ;   nb <- 5000   ;   nc <- 3
+
+###--- now run 10 simulations per parameter above
+# alter N as per 15, 25 and 35 marten per 100 sq km density
+# will also need to change output save at end of loop
+
+for(t in 1:10){
+  # simulate activity centres 
+  sx <- runif(N, xlim[1],xlim[2])
+  sy <- runif(N, ylim[1],ylim[2])
+  S <- cbind(sx, sy)
+  
+  # compute distance matrix
+  D <- e2dist(S, traps.sc) # distance of each individual from each trap
+  
+  # Parameter values
+  p0 <- p0   # define parameters of encounter probability
+  sigma <- sigma # scale parameter of half-normal
+  alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
+  
+  # Compute probability of encounter
+  probcap1 <- plogis(-2.5)*exp(-alpha1*D*D)
+  
+  # Generate the encounters of every individual in every trap
+  ntraps <- nrow(traps.sc)
+  
+  Y1 <- matrix(NA, nrow=N, ncol=ntraps)
+  for(i in 1:nrow(Y1)){
+    Y1[i,] <- rbinom(ntraps,K,probcap1[i,])
+  }
+  Y1sum = Y1[which(apply(Y1,1,sum)>0),]
+  
+  y_sim <- array(0,c(M,J)) # needs to be an array, not a list
+  
+  n0 = c(length(which(apply(Y1,1,sum)>0)))
+  y_sim[1:n0,] <- Y1sum
+  
+  # get average capture locations for detected individuals at starting activity center locations
+  traps = traps.sc
+  st=array(NA, c(M,2))
+  for(i in 1:M){
+    st[i,1:2] = runif(2, 0, 20)
+  }  
+  
+  constants<- list(J = J, area = area, M = M)
+  
+  data <- list(y = y_sim, traps = traps, trials=rep(4,J))
+  
+  z.init = apply(y_sim, c(1,2), sum)
+  z.init = ifelse(rowSums(z.init)>=1, 1, 0)
+  
+  inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
+  
+  SCR.sim.out <- nimbleMCMC(code = SCR_bern_nocluster, 
+                            data = data,
+                            constants = constants,
+                            inits = inits,
+                            monitors = params,
+                            niter = ni, 
+                            nburnin = nb,
+                            nchains = nc,
+                            samplesAsCodaMCMC = TRUE)
+  
+  SCR.sim <- MCMCsummary(SCR.sim.out, round = 4)
+  save("SCR.sim", file=paste0("out/scrsim_Kara/SCR_SimN93","_",t,".RData"))
+}
+
+###---
+# Load simulated runs
+# load("out/scrsim/SCR.sim.out_Sim01_1.RData")
+list.sims <- list.files("out/scrsim_Kara/")
+
+
+scrsim01.out <- vector('list', length(list.sims))
+for(i in 1:length(list.sims)){
+  load(paste0("out/scrsim_Kara/",list.sims[i]))
+  scrsim01.out[[i]] <- SCR.sim
+}
+
+scrsim01.df <- as.data.frame(unlist(scrsim01.out))
+nrow(scrsim01.df)
+head(scrsim01.df)
+scrsim01.df[1:14,]
+colnames(scrsim01.df)[1] <- c("value")
+scrsim01.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=5, time=length(list.sims))
+scrsim01.df$param <- rep(c("D","N","p0","psi","sigma"),each=1, time=7*length(list.sims))
+scrsim01.df$Sim <- rep(paste0("Sim0",seq_len(length(list.sims))),each=5*7)
+scrsim01.df$Run <- rep(paste0("Run", seq_len(10)),each=5*7)
+scrsim01.wide <- pivot_wider(scrsim01.df, names_from = estimate, values_from = value)
+
+glimpse(scrsim01.wide)
+
+#- Density
+50/area
+
+scr.sim.plot.density <- ggplot(data = scrsim01.wide[grepl("D",scrsim01.wide$param),]) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_point(aes(x = Run, y = mean), size=2) +
+  geom_hline(yintercept = c(130/area), col="grey") +
+  geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Mean Density (marten per 100 sq km")+
+  ggtitle("Simulations of SCR models in the Omineca:\n42 traps, 4 occassions, N=130, p0=0.5, sigma=1.5")+
+  facet_wrap(~ param)
+
+Cairo(file="out/scrsim_Kara_plot.density.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+scr.sim.plot.density
+dev.off()
+
 
 #####################################################################################
 # Start sets of simulations
