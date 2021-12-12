@@ -504,7 +504,7 @@ ni <- 50000  ;   nb <- 5000   ;   nc <- 3
 # alter N as per 15, 25 and 35 marten per 100 sq km density
 # will also need to change output save at end of loop
 
-for(t in 1:10){
+for(t in 10:10){
   # simulate activity centres 
   sx <- runif(N, xlim[1],xlim[2])
   sy <- runif(N, ylim[1],ylim[2])
@@ -654,33 +654,35 @@ for(i in 1:length(list.sims)){
   scrsim01.out[[i]] <- SCR.sim
 }
 
+#3 sims: N130 = d35, N56 = d15, N93 = d25
+
 scrsim01.df <- as.data.frame(unlist(scrsim01.out))
 nrow(scrsim01.df)
-head(scrsim01.df)
+glimpse(scrsim01.df)
 scrsim01.df[1:14,]
 colnames(scrsim01.df)[1] <- c("value")
 scrsim01.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=5, time=length(list.sims))
 scrsim01.df$param <- rep(c("D","N","p0","psi","sigma"),each=1, time=7*length(list.sims))
-scrsim01.df$Sim <- rep(paste0("Sim0",seq_len(length(list.sims))),each=5*7)
+scrsim01.df$Sim <- rep(c("d35","d15","d25"),each=5*7*10)
 scrsim01.df$Run <- rep(paste0("Run", seq_len(10)),each=5*7)
+glimpse(scrsim01.df)
 scrsim01.wide <- pivot_wider(scrsim01.df, names_from = estimate, values_from = value)
 
-glimpse(scrsim01.wide)
-
 #- Density
-50/area
+
+hline_dat = data.frame(Sim=c("d15", "d25","d35"),threshold=c(15,25,35))
 
 scr.sim.plot.density <- ggplot(data = scrsim01.wide[grepl("D",scrsim01.wide$param),]) +
   theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
   theme(panel.grid = element_blank())+
   geom_point(aes(x = Run, y = mean), size=2) +
-  geom_hline(yintercept = c(130/area), col="grey") +
+  geom_hline(data=hline_dat, aes(yintercept=threshold), colour="grey")+
   geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
   theme(axis.text.x = element_blank()) +
   xlab("Simulation Runs") +
   ylab("Mean Density (marten per 100 sq km")+
-  ggtitle("Simulations of SCR models in the Omineca:\n42 traps, 4 occassions, N=130, p0=0.5, sigma=1.5")+
-  facet_wrap(~ param)
+  ggtitle("Simulations of SCR models in the Omineca:\n42 traps, 4 occassions, p=0.5, sigma=1.5")+
+  facet_wrap(~ Sim)
 
 Cairo(file="out/scrsim_Kara_plot.density.PNG",
       type="png",
