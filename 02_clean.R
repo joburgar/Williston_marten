@@ -267,6 +267,14 @@ xlim = range(traps.sc[,1])+c(-buffer,buffer)
 ylim = range(traps.sc[,2])+c(-buffer,buffer)
 area <- diff(xlim)*diff(ylim)/100	# Density reported per 100 sq km
 
+area <- diff(marten.data$xlim)*diff(marten.data$ylim)/100	# Density reported per 100 sq km
+
+747/103.7 # 7.2, 10.3, 15.7
+564/103.7 # 5.4
+759/103.7 # 7.3
+
+
+
 # other data to save
 marten.hsdata <- list(J = nrow(traps),
                       area = area,
