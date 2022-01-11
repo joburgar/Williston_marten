@@ -76,7 +76,10 @@ if(!exists('outputDirectory')) {
 # 6.3. Simulation and analysis of the simplest possible N-mixture model
 # ------------------------------------------------------------------------
 
-.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
+R_version <- paste0("R-",version$major,".",version$minor)
+
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse","nimble","nimbleSCR","mcmcplots","MCMCvis","coda","Cairo","doParallel")
@@ -391,6 +394,13 @@ sum(N) # compared to true N
 #####################################################################################
 ##################------ CURRENT DATA ------##################
 #####################################################################################
+# e2dist from scrbook
+e2dist <- function (x, y) {
+  i <- sort(rep(1:nrow(y), nrow(x)))
+  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
+  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
+}
+
 # run for 2 clusters of marten grid cells
 # data wrangled and code fixed by Daniel Eacker (through nimble user group listserv)
 load("out/MartenGridData_2020.Rda")
@@ -417,132 +427,278 @@ trials <- cbind(rep(4,20),rep(4,20))
 sex <- martenGrid.hsdata$sex
 G <- 2 # 2 clusters
 
-# e2dist from scrbook
-e2dist <- function (x, y) {
-  i <- sort(rep(1:nrow(y), nrow(x)))
-  dvec <- sqrt((x[, 1] - y[i, 1])^2 + (x[, 2] - y[i, 2])^2)
-  matrix(dvec, nrow = nrow(x), ncol = nrow(y), byrow = F)
-}
 
-
-###--- simulate the data
-N <- round(area[1]*15) # population based on expected density
-N # 44
-
-K <- 4 # number of occasions
-
-# simulate activity centres
-sx1 <- runif(N, xlim[1,1],xlim[1,2])
-sy1 <- runif(N, ylim[1,1],ylim[1,2])
-S1 <- cbind(sx1, sy1)
-
-sx2 <- runif(N, xlim[2,1],xlim[2,2])
-sy2 <- runif(N, ylim[2,1],ylim[2,2])
-S2 <- cbind(sx2, sy2)
-
-# compute distance matrix
-D1 <- e2dist(S, traps.C1) # distance of each individual from each trap
-D2 <- e2dist(S, traps.C2) # distance of each individual from each trap
-
-# Parameter values
-p0 <- 0.1   # define parameters of encounter probability
-sigma <- 1.5 # scale parameter of half-normal
-alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
-
-# Compute probability of encounter
-probcap1 <- plogis(-2.5)*exp(-alpha1*D1*D1)
-probcap2 <- plogis(-2.5)*exp(-alpha1*D2*D2)
-
-# Generate the encounters of every individual in every trap
-ntraps <- 20
-
-
-Y1 <- matrix(NA, nrow=N, ncol=ntraps)
-for(i in 1:nrow(Y1)){
-  Y1[i,] <- rbinom(ntraps,K,probcap1[i,])
-}
-
-Y2 <- matrix(NA, nrow=N, ncol=ntraps)
-for(i in 1:nrow(Y2)){
-  Y2[i,] <- rbinom(ntraps,K,probcap2[i,])
-}
-
-sum(Y1)
-sum(Y2)
-sum(N)
-
-# View(simSCR0)
-# function to simulate data
-# function (N = 100, K = 20, alpha0 = -2.5, sigma = 0.5, discard0 = TRUE, 
-#           array3d = FALSE, rnd = NULL) 
-# {
-#   if (!is.null(rnd)) 
-#     set.seed(rnd)
-#   traplocs <- cbind(sort(rep(1:5, 5)), rep(1:5, 5))
-#   Dmat <- e2dist(traplocs, traplocs)
-#   ntraps <- nrow(traplocs)
-#   plot(traplocs)
-#   buffer <- 2
-#   Xl <- min(traplocs[, 1] - buffer)
-#   Xu <- max(traplocs[, 1] + buffer)
-#   Yl <- min(traplocs[, 2] - buffer)
-#   Yu <- max(traplocs[, 2] + buffer)
-#   sx <- runif(N, Xl, Xu)
-#   sy <- runif(N, Yl, Yu)
-#   S <- cbind(sx, sy)
-#   D <- e2dist(S, traplocs)
-#   alpha1 <- 1/(2 * sigma * sigma)
-#   probcap <- plogis(alpha0) * exp(-alpha1 * D * D)
-#   Y <- matrix(NA, nrow = N, ncol = ntraps)
-#   for (i in 1:nrow(Y)) {
-#     Y[i, ] <- rbinom(ntraps, K, probcap[i, ])
-#   }
-#   if (discard0) {
-#     totalcaps <- apply(Y, 1, sum)
-#     Y <- Y[totalcaps > 0, ]
-#   }
-#   dimnames(Y) <- list(1:nrow(Y), paste("trap", 1:ncol(Y), 
-#                                        sep = ""))
-#   if (array3d) {
-#     Y <- array(NA, dim = c(N, ntraps, K))
-#     for (i in 1:nrow(Y)) {
-#       for (j in 1:ntraps) {
-#         Y[i, j, 1:K] <- rbinom(K, 1, probcap[i, j])
-#       }
-#     }
-#     if (discard0) {
-#       Y2d <- apply(Y, c(1, 2), sum)
-#       ncaps <- apply(Y2d, 1, sum)
-#       Y <- Y[ncaps > 0, , ]
-#     }
-#   }
-#   list(Y = Y, traplocs = traplocs, xlim = c(Xl, Xu), ylim = c(Yl,Yu), N = N, alpha0 = alpha0, alpha1 = alpha1, sigma = sigma, 
-#        K = K)
-# }
-
-
-
-# get rid of zeros so observed animals come first
-Y1 = Y1[which(apply(Y1,1,sum)>0),]
-dim(Y1) # 1 row for each observed animal
-
-Y2 = Y2[which(apply(Y2,1,sum)>0),]
-dim(Y2) # 1 row for each observed animal
-
-
-y_sim <- array(0,c(M,J,2)) # needs to be an array, not a list
-
-n0 = c(length(which(apply(Y1,1,sum)>0)),length(which(apply(Y2,1,sum)>0)))
-
-y_sim[1:n0[1],,1] <- Y1
-y_sim[1:n0[2],,2] <- Y2
-dim(y_sim)
-sum(y_sim)
+###--- simulate the data - this is for one cluster only
 
 #####################################################################################
 # Model code and constants
 # Bayesian analysis of the model using NIMBLE:
+# no clusters
+SCR_bern_nocluster <- nimbleCode({
+  sigma ~ dunif(0,100) # uninformative prior
+  psi ~ dbeta(1,1)
+  p0 ~ dunif(0,1)
+  
+  for(i in 1:M){
+    z[i] ~ dbern(psi)
+    s[i,1]~dunif(0,20) # traps are centered and scaled, start at 0 and end <20 for both xlim and ylim
+    s[i,2]~dunif(0,20)
+    
+    for(j in 1:J){
+      d2[i,j]<- sqrt((s[i,1]-traps[j,1])^2 + (s[i,2]-traps[j,2])^2)
+      p[i,j]<- z[i]*p0*exp(-d2[i,j]^2/(sigma*sigma^2))
+    }
+    
+    y[i,1:J] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J])
+    
+  }
+  
+  N<-sum(z[1:M])
+  D<-N/area
+}
+)
 
+# keep in mind that WGS84 lat/long espg = 4326; BC Albers espg = 3005; NAD83 / UTM zone 10N espg = 26910 
+### Simulate for Kara's marten traps
+# first upload and wrangle Kara's trap data
+library(sf)
+om_marten <- read.csv("data/marten_deployment_pts_v3.csv", row.names=1)
+om_marten_sf <- st_as_sf(om_marten, coords=c("Long","Lat"), crs = 4326)
+om_marten_utm <- st_transform(om_marten_sf, crs=26910)
+st_coordinates(om_marten_utm)
+
+ggplot()+
+  geom_sf(data = om_marten_utm)
+
+# For the marten only trap data
+coord.scale <- 1000
+buffer <- 5 #5 km unit buffer
+
+traps.scale <- as.data.frame(st_coordinates(om_marten_utm)/coord.scale)
+
+traps.sc <- as.data.frame(cbind(traps.scale$X-min(traps.scale$X-buffer), traps.scale$Y-min(traps.scale$Y-buffer)))
+colnames(traps.sc) <- c("x","y")
+rownames(traps.sc) <- rownames(traps.scale)
+plot(traps.sc)
+xlim = range(traps.sc[,1])+c(-buffer,buffer)
+ylim = range(traps.sc[,2])+c(-buffer,buffer)
+area <- diff(xlim)*diff(ylim)/100	# Density reported per 100 sq km
+area # 3.72 or 372 km2
+
+round(area*15) # 56 population based on expected density at 15 marten per 100 sq km
+round(area*25) # 93 population based on expected density at 25 per 100 sq km
+round(area*35) # 130 population based on expected density at 35 per 100 sq km
+
+###--- for all models
+K <- 4 # number of occasions
+N = 56
+M = 200
+J = 42
+p0 <- 0.5   # define parameters of encounter probability
+sigma <- 1.5 # scale parameter of half-normal
+
+params <- c('sigma', 'p0', 'psi', 'N', 'D')
+ni <- 50000  ;   nb <- 5000   ;   nc <- 3
+
+###--- now run 10 simulations per parameter above
+# alter N as per 15, 25 and 35 marten per 100 sq km density
+# will also need to change output save at end of loop
+
+for(t in 10:10){
+  # simulate activity centres 
+  sx <- runif(N, xlim[1],xlim[2])
+  sy <- runif(N, ylim[1],ylim[2])
+  S <- cbind(sx, sy)
+  
+  # compute distance matrix
+  D <- e2dist(S, traps.sc) # distance of each individual from each trap
+  
+  # Parameter values
+  p0 <- p0   # define parameters of encounter probability
+  sigma <- sigma # scale parameter of half-normal
+  alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
+  
+  # Compute probability of encounter
+  probcap1 <- plogis(-2.5)*exp(-alpha1*D*D)
+  
+  # Generate the encounters of every individual in every trap
+  ntraps <- nrow(traps.sc)
+  
+  Y1 <- matrix(NA, nrow=N, ncol=ntraps)
+  for(i in 1:nrow(Y1)){
+    Y1[i,] <- rbinom(ntraps,K,probcap1[i,])
+    }
+  Y1sum = Y1[which(apply(Y1,1,sum)>0),]
+  
+  y_sim <- array(0,c(M,J)) # needs to be an array, not a list
+  
+  n0 = c(length(which(apply(Y1,1,sum)>0)))
+  y_sim[1:n0,] <- Y1sum
+  
+  # get average capture locations for detected individuals at starting activity center locations
+  traps = traps.sc
+  st=array(NA, c(M,2))
+  for(i in 1:M){
+    st[i,1:2] = runif(2, 0, 20)
+    }  
+  
+  constants<- list(J = J, area = area, M = M)
+  
+  data <- list(y = y_sim, traps = traps, trials=rep(4,J))
+  
+  z.init = apply(y_sim, c(1,2), sum)
+  z.init = ifelse(rowSums(z.init)>=1, 1, 0)
+  
+  inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
+  
+  SCR.sim.out <- nimbleMCMC(code = SCR_bern_nocluster, 
+                          data = data,
+                          constants = constants,
+                          inits = inits,
+                          monitors = params,
+                          niter = ni, 
+                          nburnin = nb,
+                          nchains = nc,
+                          samplesAsCodaMCMC = TRUE)
+  
+  SCR.sim <- MCMCsummary(SCR.sim.out, round = 4)
+  save("SCR.sim", file=paste0("out/scrsim_Kara/SCR_SimN56","_",t,".RData"))
+  }
+
+
+###--- for all models
+K <- 4 # number of occasions
+N = 93
+M = 200
+J = 42
+p0 <- 0.5   # define parameters of encounter probability
+sigma <- 1.5 # scale parameter of half-normal
+
+params <- c('sigma', 'p0', 'psi', 'N', 'D')
+ni <- 50000  ;   nb <- 5000   ;   nc <- 3
+
+###--- now run 10 simulations per parameter above
+# alter N as per 15, 25 and 35 marten per 100 sq km density
+# will also need to change output save at end of loop
+
+for(t in 1:10){
+  # simulate activity centres 
+  sx <- runif(N, xlim[1],xlim[2])
+  sy <- runif(N, ylim[1],ylim[2])
+  S <- cbind(sx, sy)
+  
+  # compute distance matrix
+  D <- e2dist(S, traps.sc) # distance of each individual from each trap
+  
+  # Parameter values
+  p0 <- p0   # define parameters of encounter probability
+  sigma <- sigma # scale parameter of half-normal
+  alpha1 <- 1/(2*sigma*sigma) # convert to coefficient on distance
+  
+  # Compute probability of encounter
+  probcap1 <- plogis(-2.5)*exp(-alpha1*D*D)
+  
+  # Generate the encounters of every individual in every trap
+  ntraps <- nrow(traps.sc)
+  
+  Y1 <- matrix(NA, nrow=N, ncol=ntraps)
+  for(i in 1:nrow(Y1)){
+    Y1[i,] <- rbinom(ntraps,K,probcap1[i,])
+  }
+  Y1sum = Y1[which(apply(Y1,1,sum)>0),]
+  
+  y_sim <- array(0,c(M,J)) # needs to be an array, not a list
+  
+  n0 = c(length(which(apply(Y1,1,sum)>0)))
+  y_sim[1:n0,] <- Y1sum
+  
+  # get average capture locations for detected individuals at starting activity center locations
+  traps = traps.sc
+  st=array(NA, c(M,2))
+  for(i in 1:M){
+    st[i,1:2] = runif(2, 0, 20)
+  }  
+  
+  constants<- list(J = J, area = area, M = M)
+  
+  data <- list(y = y_sim, traps = traps, trials=rep(4,J))
+  
+  z.init = apply(y_sim, c(1,2), sum)
+  z.init = ifelse(rowSums(z.init)>=1, 1, 0)
+  
+  inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
+  
+  SCR.sim.out <- nimbleMCMC(code = SCR_bern_nocluster, 
+                            data = data,
+                            constants = constants,
+                            inits = inits,
+                            monitors = params,
+                            niter = ni, 
+                            nburnin = nb,
+                            nchains = nc,
+                            samplesAsCodaMCMC = TRUE)
+  
+  SCR.sim <- MCMCsummary(SCR.sim.out, round = 4)
+  save("SCR.sim", file=paste0("out/scrsim_Kara/SCR_SimN93","_",t,".RData"))
+}
+
+###---
+# Load simulated runs
+# load("out/scrsim/SCR.sim.out_Sim01_1.RData")
+list.sims <- list.files("out/scrsim_Kara/")
+
+
+scrsim01.out <- vector('list', length(list.sims))
+for(i in 1:length(list.sims)){
+  load(paste0("out/scrsim_Kara/",list.sims[i]))
+  scrsim01.out[[i]] <- SCR.sim
+}
+
+#3 sims: N130 = d35, N56 = d15, N93 = d25
+
+scrsim01.df <- as.data.frame(unlist(scrsim01.out))
+nrow(scrsim01.df)
+glimpse(scrsim01.df)
+scrsim01.df[1:14,]
+colnames(scrsim01.df)[1] <- c("value")
+scrsim01.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=5, time=length(list.sims))
+scrsim01.df$param <- rep(c("D","N","p0","psi","sigma"),each=1, time=7*length(list.sims))
+scrsim01.df$Sim <- rep(c("d35","d15","d25"),each=5*7*10)
+scrsim01.df$Run <- rep(paste0("Run", seq_len(10)),each=5*7)
+glimpse(scrsim01.df)
+scrsim01.wide <- pivot_wider(scrsim01.df, names_from = estimate, values_from = value)
+
+#- Density
+
+hline_dat = data.frame(Sim=c("d15", "d25","d35"),threshold=c(15,25,35))
+
+scr.sim.plot.density <- ggplot(data = scrsim01.wide[grepl("D",scrsim01.wide$param),]) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_point(aes(x = Run, y = mean), size=2) +
+  geom_hline(data=hline_dat, aes(yintercept=threshold), colour="grey")+
+  geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Mean Density (marten per 100 sq km")+
+  ggtitle("Simulations of SCR models in the Omineca:\n42 traps, 4 occassions, p=0.5, sigma=1.5")+
+  facet_wrap(~ Sim)
+
+Cairo(file="out/scrsim_Kara_plot.density.PNG",
+      type="png",
+      width=3000,
+      height=2200,
+      pointsize=15,
+      bg="white",
+      dpi=300)
+scr.sim.plot.density
+dev.off()
+
+
+#####################################################################################
+# Start sets of simulations
+# with clusters
+# no clusters
 SCR_bern <- nimbleCode({
   sigma ~ dunif(0,100) # uninformative prior
   psi ~ dbeta(1,1)
@@ -560,7 +716,7 @@ SCR_bern <- nimbleCode({
       }
       
       y[i,1:J,g] ~ dbinom_vector(size = trials[1:J], prob = p[i,1:J,g])
-
+      
     }
     
     N[g]<-sum(z[1:M,g])
@@ -568,83 +724,6 @@ SCR_bern <- nimbleCode({
   }
 }
 )
-
-constants<- list(
-  J = J,
-  area = area,
-  M = M,
-  G = G)
-
-# get average capture locations for detected individuals at starting activity center locations
-st=array(NA, c(M,2,G))
-for(g in 1:G){
-  for(i in 1:n0[g]){ # augmented
-    if(sum(y_sim[i,,g])==1){
-      st[i,1:2,g] = traps[y_sim[i,,g],,g]
-    }else {
-      st[i,1:2,g] = apply(traps[y_sim[i,,g],,g], 2, mean)
-    }
-  }
-  for(i in (n0[g]+1):M){
-    st[i,1:2,g] = runif(2, 0, 20)
-  }}  
-
-data <- list(
-  y = y_sim, traps = traps, trials=rep(4,J))
-
-z.init = apply(y_sim, c(1,3), sum)
-z.init = ifelse(z.init >=1, 1, 0)
-
-inits = list(z = z.init, p0 = runif(1,0.05, 1), psi = mean(z.init), sigma = runif(1, 2, 5), s = st)
-
-params <- c('sigma', 'p0', 'psi', 'N', 'D')
-
-# MCMC settings to test
-# ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
-# MCMC settings for actual run
-ni <- 50000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
-
-# Test with no latent N
-scrR <- nimbleModel(code = SCR_bern,
-                    data=data,
-                    constants = constants,
-                    inits = inits)
-
-scrR$calculate()
-scrR$initializeInfo()
-
-# compile model to C++#
-scrC <- compileNimble(scrR, showCompilerOutput = F)
-# MCMC sampler configurations
-mcmcspec<-configureMCMC(scrR, monitors=params)
-# build the MCMC specifications
-scrMCMC <- buildMCMC(mcmcspec)
-# complile the code in S+
-CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
-# run MCMC
-tic()
-sim1 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,thin=nt,nchains=nc)
-toc()
-# sim1 = ni = 50000 # 952.56/60 # 16 min
-str(sim1)
-
-MCMCsummary(sim1, round = 4)
-
-chainsPlot(sim1,
-           var = c("N", "D", "sigma"))
-
-# mean      sd    2.5%     50%   97.5% Rhat n.eff
-# D[1]  13.0977  5.5887  4.1129 12.3388 25.7058 1.00  1606
-# D[2]  14.3724  5.3685  5.6884 13.6045 26.5288 1.00  1706
-# N[1]  38.2142 16.3059 12.0000 36.0000 75.0000 1.00  1606
-# N[2]  42.2576 15.7845 16.7250 40.0000 78.0000 1.00  1706
-# p0     0.1084  0.0423  0.0427  0.1029  0.2046 1.00  2428
-# psi    0.2025  0.0800  0.0702  0.1941  0.3808 1.00  1631
-# sigma  1.7776  0.4545  1.3205  1.6801  2.8438 1.02   687
-
-
-#####################################################################################
-# Start sets of simulations
 
 # MCMC settings for actual run
 ni <- 50000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
@@ -710,7 +789,7 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
     y_sim[1:n0[2],,2] <- Y2use
     # dim(y_sim)
     # sum(y_sim)
-    # 
+    # class(traps)
     constants<- list(
       J = J,
       area = area,
@@ -724,7 +803,7 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
         if(sum(y_sim[i,,g])==1){
           st[i,1:2,g] = traps[y_sim[i,,g],,g]
         }else {
-          st[i,1:2,g] = apply(traps[y_sim[i,,g],,g], 2, mean)
+          st[i,1:2,g] = apply(as.matrix(traps[y_sim[i,,g],,g]), 2, mean)
         }
       }
       for(i in (n0[g]+1):M){
@@ -770,14 +849,29 @@ scr.function <- function(simname=simname, xlims=xlim, ylims=ylim, traps1=traps.C
 
 # running simulations with 2 clusters, each with 20 traps, open for 4 occasions
 # real population at each trap = 44, varying p0 and sigma
-for(i in 5:10){
-  sim.out <- scr.function(simname=c("Sim10"), N=100, J=20, G=2, K=4, p0=0.5, sigma=2)
-  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim10","_",i,".RData"))
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim05"), N=50, J=20, G=2, K=4, p0=0.4, sigma=1.5)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim05","_",i,".RData"))
 }
 
-for(i in 2:10){
-  sim.out <- scr.function(simname=c("Sim02"), N=50, J=20, G=2, K=4, p0=0.4, sigma=2)
-  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim02","_",i,".RData"))
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim06"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1.5)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim06","_",i,".RData"))
+}
+
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim07"), N=50, J=20, G=2, K=4, p0=0.5, sigma=1)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim07","_",i,".RData"))
+}
+
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim08"), N=50, J=20, G=2, K=4, p0=0.4, sigma=1)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim08","_",i,".RData"))
+}
+
+for(i in 1:10){
+  sim.out <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1)
+  save("sim.out", file=paste0("out/scrsim/SCR.sim.out_Sim09","_",i,".RData"))
 }
 
 scr.Sim01 <- scr.function(simname=c("Sim01"), N=50, J=20, G=2, K=4, p0=0.5, sigma=2, numsim=10)
@@ -788,7 +882,7 @@ scr.Sim05 <- scr.function(simname=c("Sim05"), N=50, J=20, G=2, K=4, p0=0.4, sigm
 scr.Sim06 <- scr.function(simname=c("Sim06"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1.5, numsim=10)
 scr.Sim07 <- scr.function(simname=c("Sim07"), N=50, J=20, G=2, K=4, p0=0.5, sigma=1, numsim=10)
 scr.Sim08 <- scr.function(simname=c("Sim08"), N=50, J=20, G=2, K=4, p0=0.4, sigma=1, numsim=10)
-scr.Sim08 <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=10)
+scr.Sim09 <- scr.function(simname=c("Sim09"), N=50, J=20, G=2, K=4, p0=0.3, sigma=1, numsim=10)
 
 
 ###---
