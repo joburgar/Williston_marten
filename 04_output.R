@@ -35,7 +35,7 @@ tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "Cairo","OpenStreetMap", "ggmap",
-                      "leaflet", "lunar", "zoo", "colortools", "RColorBrewer", "viridis","osmdata", "ggspatial") # "gridExtra", "grid"
+                      "leaflet", "lunar", "zoo", "colortools", "RColorBrewer", "viridis","osmdata", "ggspatial", "gridExtra")
 
 
 # Check you have them and load them
@@ -60,7 +60,6 @@ rm(list.of.packages, new.packages) # for housekeeping
 #################################################################################
 load("./data/01_load.RData")
 glimpse(lttrap) # marten live trap trap data
-colnames(lttrap[[1]])[2:3] <- c("x","y")
 glimpse(ltdat)
 ltdat %>% group_by(`Trapping session`) %>% count(Status)
 
@@ -70,57 +69,79 @@ ltdat %>% group_by(`Trapping session`) %>% count(Status)
 # 3 98-99              MAAM      80
 # 4 99-00              MAAM     160
 
-m.obs.96 <- ltdat %>% filter(`Trapping session`=="96-97") %>% group_by(Trap_ID) %>% count(Status)
-colnames(m.obs.96)[3] <- c("Martens Trapped")
-m.obs.97 <- ltdat %>% filter(`Trapping session`=="97-98") %>% group_by(Trap_ID) %>% count(Status)
-m.obs.98 <- ltdat %>% filter(`Trapping session`=="98-99") %>% group_by(Trap_ID) %>% count(Status)
-m.obs.99 <- ltdat %>% filter(`Trapping session`=="99-00") %>% group_by(Trap_ID) %>% count(Status)
 
 ###--- Load formatted data
-load("./out/MartenData_1996.Rda")
-glimpse(marten.data)
-lt96.traps <- marten.data$traps
-lt96.traps$x <- lt96.traps$x*1000
-lt96.traps$y <- lt96.traps$y*1000
-lt96.traps <- left_join(lt96.traps, lttrap[[1]] %>% select(Trap_ID, x, y), by=c("x", "y"))
-lt96.traps <- left_join(lt96.traps, m.obs.96 %>% select(-Status))
-lt96.traps[is.na(lt96.traps)] <- 0
+create_trap_map <- function(lttrap=lttrap, ltdat=ltdat, year=year){
+  # lttrap=lttrap[[1]]
+  # ltdat=ltdat
+  # year="96"
+   
+  load(paste0("./out/MartenData_19",year,".Rda"))
+  colnames(lttrap)[2:3] <- c("x","y")
+  
+  traps <- marten.data$traps
+  traps$x <- traps$x*1000
+  traps$y <- traps$y*1000
+  traps <- left_join(traps, lttrap %>% select(Trap_ID, x, y), by=c("x", "y"))
+  
+  
+  m.obs <- ltdat %>% filter(grepl(year, `Trapping session`)) %>% group_by(Trap_ID) %>% count(Status)
+  colnames(m.obs)[3] <- c("Martens per Trap")
+  
+  traps <- left_join(traps, m.obs %>% select(-Status))
+  traps[is.na(traps)] <- 0
+  
+  ###--- create sf object of trap data
+  traps.sf <- st_as_sf(traps, coords=c("x","y"), crs=26910)
+  
+  ###--- view OSM data and download appropriate section for study area
+  traps.latlon <- st_transform(traps.sf, crs=4326)
+  bbox <- st_bbox(traps.latlon)
+  
+  # use latlon for entire study area
+  
+  LAT1 = bbox[2] ; LAT2 = bbox[4]
+  LON1 = bbox[3] ; LON2 = bbox[1]
+  
+  #our background map
+  map <- openmap(c(LAT2+0.05,LON1+0.05), c(LAT1-0.05,LON2-0.05), 
+                 zoom = NULL,
+                 type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[6],
+                 mergeTiles = TRUE)
+  
+  ## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"
+  map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+  
+  traps.latlon$Longitude <- st_coordinates(traps.latlon)[,1]
+  traps.latlon$Latitude <- st_coordinates(traps.latlon)[,2]
+  
+  trapyear <- as.numeric(paste0("19",year))
+  plot.subtitle <- paste0(trapyear," - ",trapyear+1)
+  
+  traps.plot <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+    labs(subtitle = plot.subtitle)+
+    geom_sf(data=traps.latlon[traps.latlon$`Martens per Trap`!=0,],
+            aes(x=Longitude, y=Latitude, size=`Martens per Trap`), col="darkblue")+
+    geom_sf(data=traps.latlon[traps.latlon$`Martens per Trap`==0,],
+            aes(x=Longitude, y=Latitude), col="cadetblue")
+  
+   return(list(traps.sf=traps.sf, traps.plot=traps.plot))
+}
 
-###--- create sf object of trap data
-lt96.traps.sf <- st_as_sf(lt96.traps, coords=c("x","y"), crs=26910)
+###--- create trap plots for the 4 live traps years
+years <- c("96", "97", "98", "99")
 
-###--- view OSM data and download appropriate section for study area
-lt96.traps.latlon <- st_transform(lt96.traps.sf, crs=4326)
-lt96_bbox <- st_bbox(lt96.traps.latlon)
+traps.out = list()
+for(i in 1:length(years)){
+  traps.out[[i]] <- create_trap_map(lttrap=lttrap[[i]], ltdat=ltdat, year=years[i])
+}
 
-# use latlon for entire study area
-
-LAT1 = lt96_bbox[2] ; LAT2 = lt96_bbox[4]
-LON1 = lt96_bbox[3] ; LON2 = lt96_bbox[1]
-
-#our background map
-# library("OpenStreetMap")
-# library("rJava")
-map <- openmap(c(LAT2+0.05,LON1+0.05), c(LAT1-0.05,LON2-0.05), 
-               zoom = NULL,
-               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[6],
-               mergeTiles = TRUE)
-
-## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"
-map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
-
-lt96.traps.latlon$Longitude <- st_coordinates(lt96.traps.latlon)[,1]
-lt96.traps.latlon$Latitude <- st_coordinates(lt96.traps.latlon)[,2]
-
-
-lt96_plot <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
-  labs(title = "Live Trap Locations\nWilliston Basin", subtitle = "1996-1997", x = "Longitude", y="Latitude")+
-  geom_sf(data=lt96.traps.latlon[lt96.traps.latlon$`Martens Trapped`!=0,],
-          aes(x=Longitude, y=Latitude, size=`Martens Trapped`), col="darkblue")+
-  geom_sf(data=lt96.traps.latlon[lt96.traps.latlon$`Martens Trapped`==0,],
-          aes(x=Longitude, y=Latitude), col="cadetblue")
-
-
-Cairo(file="out/lt96_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-lt96_plot
+Cairo(file="out/lt99_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.out[[4]]$traps.plot
 dev.off()
+
+grid.arrange(traps.out[[1]]$traps.plot,traps.out[[2]]$traps.plot,
+             traps.out[[3]]$traps.plot,traps.out[[4]]$traps.plot, 
+             nrow=2,
+             top="Williston Basin Live Trap Locations")
+
