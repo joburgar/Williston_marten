@@ -15,8 +15,11 @@
 # script to load marten trap and detection data from 2000 and 2020
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 08-Oct-2021
 #####################################################################################
+version$major
+version$minor
+R_version <- paste0("R-",version$major,".",version$minor)
 
-.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
