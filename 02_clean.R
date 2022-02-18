@@ -15,8 +15,12 @@
 # script to clean marten trap and detection data from 2000 and 2020
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 10-Oct-2021
 #####################################################################################
+version$major
+version$minor
+R_version <- paste0("R-",version$major,".",version$minor)
 
-.libPaths("C:/Program Files/R/R-4.1.1/library") # to ensure reading/writing libraries from C drive
+.libPaths(paste0("C:/Program Files/R/",R_version,"/library")) # to ensure reading/writing libraries from C drive
+tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse", "lubridate","chron","sf","sp","raster","rgeos","rgdal", "concaveman","Cairo","OpenStreetMap", "ggmap")
@@ -27,7 +31,6 @@ if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 #####################################################################################
 ###--- load data if not running concurrently
-getwd()
 # load("./data/01_load.RData")
 
 ############################--- RETROSPECTIVE DATA ---###########################
@@ -52,7 +55,7 @@ print(num.days)
 # note that not all traps were open for the entire sampling period
 # on some dates no traps were open
 # need to create day look up table and fill in missing dates with 0
-# create Rda object for each year of data, with all necessary SC input data
+# create Rdata object for each year of data, with all necessary model input data
 for(i in 1:length(lttrap)){
   # i=2
   # rm(i)
@@ -132,12 +135,12 @@ for(i in 1:length(lttrap)){
 
 marten.data <- list(xlim = bb[1,], ylim = bb[2,], trap.oper = trap.oper,
                     traps = traps.scale, observations = dat.mart, daylookup = daylookup)
-save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".Rda"))
+save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".Rdata"))
 }
 
-# load("out/MartenData_1999.Rda")
+# load("out/MartenData_1999.Rdata")
 # summary(marten.data$observations) # checked all Rda objects = appear correct
-
+glimpse(marten.data)
 ############################--- CURRENT DATA ---###########################
 
 ###--- wrangle trap data
