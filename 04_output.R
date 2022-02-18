@@ -34,7 +34,7 @@ tz = Sys.timezone() # specify timezone in BC
  
 
 # Load Packages
-list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "Cairo","OpenStreetMap", "ggmap",
+list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "nngeo","Cairo","OpenStreetMap", "ggmap",
                       "leaflet", "lunar", "zoo", "colortools", "RColorBrewer", "viridis","osmdata", "ggspatial", "gridExtra")
 
 
@@ -45,19 +45,6 @@ lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
 #####################################################################################
 
-# ###--- function to retrieve geodata from BCGW
-# 
-# retrieve_geodata_aoi <- function (ID=ID){
-#   aoi.geodata <- bcdc_query_geodata(ID) %>%
-#     filter(BBOX(st_bbox(aoi))) %>%
-#     collect()
-#   aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
-#   aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
-#   aoi.geodata <- drop_units(aoi.geodata)
-#   return(aoi.geodata)
-# }
-
-#################################################################################
 load("./data/01_load.RData")
 glimpse(lttrap) # marten live trap trap data
 glimpse(ltdat)
@@ -145,3 +132,69 @@ grid.arrange(traps.out[[1]]$traps.plot,traps.out[[2]]$traps.plot,
              nrow=2,
              top="Williston Basin Live Trap Locations")
 
+#####################################################################################
+
+###--- determine distance of traps and group those that are too close
+# need to convert to utm for m distance
+# espg 26910
+
+traps.utm <- st_transform(traps.out[[1]]$traps.sf, crs=26910)
+st_bbox(traps.utm)
+
+nrow(traps.utm)
+traps.utm$Trap_ID
+traps.utm.3km <- st_buffer(traps.utm, dist=3000)
+traps.utm.5km <- st_buffer(traps.utm, dist=5000)
+traps.utm.10km <- st_buffer(traps.utm, dist=10000)
+
+ggplot(traps.utm) +
+  # geom_sf(aes(col = TrapGroup)) +
+  geom_sf_label(aes(label = Trap_ID))
+
+ggplot()+
+  geom_sf(data=traps.utm)+
+  geom_sf(data=traps.utm.3km, fill=NA, col="blue")+
+  geom_sf(data=traps.utm.5km, fill=NA, col="red")+
+  geom_sf(data=traps.utm.10km, fill=NA, col="green")
+  
+#- distances between traps
+traps.dist <- st_nn(traps.utm, traps.utm, k=nrow(traps.utm), maxdist=10000, returnDist = T, sparse=TRUE)
+
+# not sure going by distance is the best method as lots overlap in distance...
+# changing tactics and setting down a 'grid' and grouping traps that fall within arbitrary grid
+# some traps will be closer to others in different grid but not sure how else to group
+
+################################################################################
+###--- function to create grid
+# note that this function uses hexagon grids to group points (traps)
+
+find_grid <- function (input=input, cellsize=cellsize){
+  
+  aoi_utm <- st_transform(input, crs=26910) # to have in metres for specifying grid cell size
+  aoi_grid <- st_make_grid(st_bbox(aoi_utm), cellsize=cellsize, square=FALSE) #  grid for entire AOI (rectangle)
+  
+  tg.dist <- st_nn(aoi_utm, aoi_grid, k=1, returnDist = T)
+  aoi_utm$tg_value <- tg.dist$nn
+  
+  tmp <- as.data.frame(aoi_utm %>% count(tg_value) %>% st_drop_geometry())
+  tmp$Trap_Grp <- rownames(tmp)
+  aoi_utm$Trap_Grp <- tmp$Trap_Grp[match(aoi_utm$tg_value, tmp$tg_value)]
+  aoi_utm <- aoi_utm %>% dplyr::select(-c(tg_value))
+  
+  return(list(aoi_utm=aoi_utm, aoi_grid=aoi_grid))
+}
+
+traps.grid <- find_grid(input=traps.utm, cellsize=5000)
+
+ggplot()+
+  geom_sf(data=traps.grid$aoi_grid, fill=NA)+
+  geom_sf(data=traps.grid$aoi_utm, aes(col=Trap_Grp))
+  
+
+ggplot(traps.grid$aoi_utm)+
+  geom_sf(aes(col=Trap_Grp))+
+  geom_sf_label(aes(label = Trap_Grp))
+
+  
+  
+  
