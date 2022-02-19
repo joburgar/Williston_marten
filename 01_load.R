@@ -30,20 +30,6 @@ new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"
 if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
-#####################################################################################
-
-# ###--- function to retrieve geodata from BCGW
-# 
-# retrieve_geodata_aoi <- function (ID=ID){
-#   aoi.geodata <- bcdc_query_geodata(ID) %>%
-#     filter(BBOX(st_bbox(aoi))) %>%
-#     collect()
-#   aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
-#   aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
-#   aoi.geodata <- drop_units(aoi.geodata)
-#   return(aoi.geodata)
-# }
-
 #################################################################################
 
 ############################--- RETROSPECTIVE DATA ---###########################
