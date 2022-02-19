@@ -23,7 +23,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc")
+list.of.packages <- c("tidyverse", "lubridate","chron","sf","Cairo", "sf", "nngeo", "units","OpenStreetMap", "ggmap")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -32,51 +32,69 @@ lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
 
 ################################################################################
-# if issues running nimble, run the following line
-writeLines('PATH="${RTOOLS40_HOME}\\usr\\bin;${PATH}"', con = "~/.Renviron")
-
-################################################################################
-
-# Some of the NIMBLE examples generate html pages with comparisons
-# of different MCMCs.  These will be placed in the path contained in
-# the variable 'outputDirectory'.  If you do not provide 'outputDirectory',
-# the default location will be a subdirectory 'your_comparison_pages'
-# of your current working directory.  Your current working directory
-# can be obtained by getwd().
-if(!exists('outputDirectory')) {
-  outputDirectory <- file.path(getwd(), "your_comparison_pages")
-  dir.create(outputDirectory, showWarnings = FALSE)
+#- function to group traps based on grid cell
+find_grid <- function (input=input, cellsize=cellsize){
+  # input=traps.sf
+  # cellsize=5000
+  aoi_utm <- st_transform(input, crs=26910) # to have in metres for specifying grid cell size
+  aoi_utm$TrapNum <- rownames(aoi_utm)
+  aoi_grid <- st_make_grid(st_bbox(aoi_utm), what="polygons", cellsize=cellsize, square=FALSE) #  grid for entire AOI (rectangle)
+  
+  # subset grid to just cells of interest
+  aoi_grid <- aoi_grid[aoi_utm] 
+  # To sf and add grid ID
+  fishnet_grid_sf = st_sf(aoi_grid) %>%
+    # add grid ID
+    mutate(grid_id = 1:length(lengths(aoi_grid)))
+  
+  fishnet_grid_sf$Area_km2 <- st_area(fishnet_grid_sf)*1e-6
+  fishnet_grid_sf <- drop_units(fishnet_grid_sf)
+  fishnet_grid_sf %>% summarise(sum(Area_km2)) %>% st_drop_geometry() #714.5 km2 study area each cell is 21.65 km2
+  
+  tg.dist <- st_nn(aoi_utm, fishnet_grid_sf, k=1, returnDist = T)
+  aoi_utm$Trap_Grp <- unlist(tg.dist$nn)
+  
+  Trap_Grp <- aoi_utm %>% st_drop_geometry()
+  
+  return(list(aoi_utm=aoi_utm, fishnet_grid_sf=fishnet_grid_sf, Trap_Grp=Trap_Grp))
 }
 
-############################--- RETROSPECTIVE DATA ---##########################
-# Run N-mixutre model for unmarked live trap data
-# https://cran.r-project.org/web/packages/nimbleEcology/vignettes/Introduction_to_nimbleEcology.html
-# Adapting from https://rdrr.io/cran/nimbleEcology/man/dNmixture.html
-# Also need to review Applied Hierarchical Modeling code (converted to NIMBLE and available on github)
-# https://github.com/nimble-training/AHMnimble/blob/master/Chapter_6/Section_6p11_setup.R
-# unmarked pcount: https://cran.r-project.org/web/packages/unmarked/unmarked.pdf
-# https://github.com/nimble-training/AHMnimble/tree/master/Chapter_6
+#####################################################################################
+#- function to retrieve geodata from BCGW
+retrieve_geodata_aoi <- function (ID=ID){
+  aoi.geodata <- bcdc_query_geodata(ID) %>%
+    filter(BBOX(st_bbox(aoi))) %>%
+    collect()
+  aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
+  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
+  aoi.geodata <- drop_units(aoi.geodata)
+  return(aoi.geodata)
+}
 
-# load data if not running concurrently
-# load("out/MartenData_1996.Rdata")
+#####################################################################################
+############################--- RETROSPECTIVE DATA ---##########################
+# load data if not running concurrently (use run_all.R to source)
+# load("out/MartenData_1996.RData")
 # nm.area <- diff(marten.data$xlim)*diff(marten.data$ylim)/100	# Density reported per 100 sq km
 # nm.area # 51.21623 100 km2 or 5122 km2 total area (is this true?)
 
-out.files <- list.files("./out/", pattern="*.Rdata")
+load("out/retro_traps_grp.RData")
+str(traps.grid)
+
+out.files <- list.files("./out/", pattern="*.RData")
+out.files <- out.files[grepl("MartenData", out.files)]
 out.files <- out.files[!grepl("2020", out.files)]
 
-retro.data.out <- vector('list', length(out.files))
-str(retro.data.out)
+# retro.data.out <- vector('list', length(out.files))
+# str(retro.data.out)
+
+retro.data.out <- list()
 
 for(r in 1:length(out.files)){
-  
   load(paste0("./out/",out.files[r]))
-  # https://github.com/nimble-training/AHMnimble/blob/master/Chapter_6/Section_6p11_setup.R
   marten.data$observations
-  marten.data$observations %>% count(Trap_ID)
   marten.data$trap.oper
   trap.oper <- marten.data$trap.oper
-  
   traps.open <- rowSums(trap.oper)
   traps.open[order(traps.open)]
   
@@ -103,20 +121,38 @@ for(r in 1:length(out.files)){
   days21.to.use <- days21.to.use[days21.to.use$n==21,]$Occ_21day
   
   # observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
-  week.effort <- as.data.frame(array(NA, dim=c(nrow(trap.oper), length(weeks.to.use))))
+  
+  # first need to group traps
+  traps <- marten.data$traps*1000
+  traps.sf <- st_as_sf(traps, coords=c("x","y"), crs=26910)
+  grid_output <- find_grid(input=traps.sf, cellsize=5000)
+  traps.grouped <- grid_output$aoi_utm %>% st_drop_geometry()
+  traps.grouped$TrapNum <- rownames(traps.grouped)
+  num.trp.grps <- length(unique(traps.grouped$Trap_Grp))
+  
+  # now back to effort and observations
+  week.effort <- as.data.frame(array(NA, dim=c(num.trp.grps, length(weeks.to.use))))
   colnames(week.effort) <- weeks.to.use
-  rownames(week.effort) <- rownames(trap.oper)
+  rownames(week.effort) <- rownames(unique(traps.grouped$Trap_Grp))
+  
+  # create trap.oper based on trap groups
+  tg_trap.oper <- as.data.frame(trap.oper)
+  tg_trap.oper$Trap_Grp <- traps.grouped$Trap_Grp[match(rownames(tg_trap.oper),traps.grouped$TrapNum)]
+  tg_trap.oper <- as.data.frame(tg_trap.oper %>% group_by(Trap_Grp) %>% summarise(across(everything(), sum)))
+  rownames(tg_trap.oper) <- tg_trap.oper[,1]
+  tg_trap.oper <- as.matrix(tg_trap.oper[2:ncol(tg_trap.oper)])
+  dim(tg_trap.oper)
   
   eff.col <- 1
   for(i in 1:length(week.effort)){
     # i=8
-    tmp1 <- as.data.frame(t(trap.oper))
+    tmp1 <- as.data.frame(t(tg_trap.oper))
     tmp1$Occ_week <- daylookup$Occ_week[match(rownames(tmp1), as.character(daylookup$Date))]
     tmp1 <- tmp1 %>% filter(Occ_week %in% weeks.to.use)
     tmp1 %>% count(Occ_week)
     tmp2 <- tmp1 %>% filter(Occ_week==i) %>% colSums()
     
-    week.effort[,eff.col] <- tmp2[1:nrow(trap.oper)]
+    week.effort[,eff.col] <- tmp2[1:nrow(tg_trap.oper)]
     
     eff.col <- eff.col + 1
   }
@@ -128,33 +164,33 @@ for(r in 1:length(out.files)){
   week.effort.trunc <- week.effort[1:tmp3]
   effort.21days <- sapply(seq(1,tmp3,by=3),function(i) rowSums(week.effort.trunc[,i:(i+2)]))
   
-  
   tot.week.effort <- rowSums(week.effort) # total effort per trap 
   tot.21day.effort <- rowSums(effort.21days) # total effort per trap 
   
   # tot.week.effort == tot.21day.effort # not always true, must be due to removing the last few weeks
   
-  # for nmixture model, have a covariate (obs.cov) of trap effort per week
-  # change occasions from day to week to emulate Poisson data
+  # have a covariate (obs.cov) of trap effort per week
+  # bin occasions from day to week to emulate Poisson data for nmix and better work in occupancy
   
   # nmix.create.y.obs.cov <- function(num.days = num.days){
   # i=1
   traps.open <- rowSums(trap.oper)
-  observations <- marten.data$observations
   # observations %>% filter(TrapNumber %in% tmp2) 
   
   # need to find the observation data that corresponds to those dates
   # add in the 1 when a marten was in a trap and a 0 if trap open but not in trap
   # create a matrix appending rows as the loop cycles...not sure about this bit
   
-  y <- as.data.frame(array(NA, dim=c(nrow(trap.oper), length(weeks.to.use)))) # to create the y object
-  dim(y) # 77 traps by 25 occasions
+ 
+  observations <- marten.data$observations
+  observations$Trap_Grp <- traps.grouped$Trap_Grp[match(observations$TrapNumber, traps.grouped$TrapNum)]
+  observations$Count <- 1
+  observations <- observations %>% group_by(Trap_Grp, Date_obs) %>% summarise(Count = sum(Count))
   
-  observations$count <- 1
-  observations <- observations %>% arrange(TrapNumber, Date_obs) %>% dplyr::select(-Trap_ID)
-  obs.wide <- pivot_wider(observations, names_from = TrapNumber, values_from = count, values_fill = 0)
+  observations <- observations %>% arrange(Trap_Grp, Date_obs)
+  obs.wide <- pivot_wider(observations, names_from = Trap_Grp, values_from = Count, values_fill = 0)
   obs.wide <- obs.wide %>%  arrange(Date_obs) %>% rename(Date="Date_obs")
-  dim(obs.wide) # 96 x 54
+  dim(obs.wide) # 
   duplicated(obs.wide$Date) # all should be false
   
   # need to add in dates and sites
@@ -167,48 +203,47 @@ for(r in 1:length(out.files)){
   y_allT <- as.data.frame(t(y_all %>% dplyr::select(-c(YDay, Date, Occ, Week, Occ_week, Occ_21day))))
   dim(y_allT)
   
-  y_allT$TrapNum <- colnames(obs.wide[2:ncol(obs.wide)])
+  y_allT$Trap_Grp <- colnames(obs.wide[2:ncol(obs.wide)])
   
-  tmp1 <- as.data.frame(array(NA, dim=c(nrow(trap.oper), 0)))
-  tmp1$TrapNum <- rownames(tmp1)
+  tmp1 <- as.data.frame(array(NA, dim=c(num.trp.grps, 0)))
+  tmp1$Trap_Grp <- rownames(tmp1)
   tmp2 <- left_join(tmp1, y_allT)
   y_day <- as.matrix(tmp2[,2:ncol(tmp2)])
   colnames(y_day) <- seq_len(ncol(trap.oper))
-  rownames(y_day) <- seq_len(nrow(trap.oper))
+  rownames(y_day) <- seq_len(num.trp.grps)
   y_day[is.na(y_day)] <- 0
   
   # create y for all sites, weekly, 21 day occasions 
   tmp3 <- as.data.frame(t(y_day))
   tmp3$Occ_week <- daylookup$Occ_week[match(rownames(tmp3), daylookup$Occ)]
-  y_week <- tmp3 %>% group_by(Occ_week) %>% summarise_at(1:nrow(trap.oper), sum)
+  y_week <- tmp3 %>% group_by(Occ_week) %>% summarise_at(1:num.trp.grps, sum)
   y_week <- as.matrix(t(y_week %>% dplyr::select(-Occ_week)))
   y_week <- y_week[,1:length(weeks.to.use)]
   
   tmp3$Occ_21day <- daylookup$Occ_21day[match(rownames(tmp3), daylookup$Occ)]
-  y_21day <- tmp3 %>% group_by(Occ_21day) %>% summarise_at(1:nrow(trap.oper), sum)
+  y_21day <- tmp3 %>% group_by(Occ_21day) %>% summarise_at(1:num.trp.grps, sum)
   y_21day <- as.matrix(t(y_21day %>% dplyr::select(-Occ_21day)))
   y_21day <- y_21day[,1:length(days21.to.use)]
   
   
-  
-  sum(y_21day)# 277 observations
-  sum(y_week) # 279 observations
-  sum(y_day)  # 280 observations 
+  sum(y_21day)# 234 observations
+  sum(y_week) # 273 observations
+  sum(y_day)  # 273 observations 
   # omitted 3 days from the week occasion because last week not a full week
   
   sum(y_week) == sum(y_day) # same number of observations in weekly and full dataset
-  # not the same because of omitted days
+  # may not be the same because of omitted days
   
   retro.data.out[[r]] <- list(y_week=y_week, y_day=y_day, y_21day=y_21day, week.effort=week.effort, weeks.to.use=weeks.to.use, 
-                              daylookup=daylookup, effort.21days=effort.21days, days21.to.use=days21.to.use)
+                              daylookup=daylookup, effort.21days=effort.21days, days21.to.use=days21.to.use, grid_output=grid_output)
   
 }
 
 
 # Look at detections per week and per trap
-glimpse(retro.data.out[[1]])
-rowSums(retro.data.out[[1]]$y_week);colSums(retro.data.out[[1]]$y_week)
-rowSums(retro.data.out[[1]]$y_day);colSums(retro.data.out[[1]]$y_day)
+# glimpse(retro.data.out[[1]])
+# rowSums(retro.data.out[[1]]$y_week);colSums(retro.data.out[[1]]$y_week)
+# rowSums(retro.data.out[[1]]$y_day);colSums(retro.data.out[[1]]$y_day)
 # rowSums(retro.data.out[[2]][[1]]);colSums(retro.data.out[[2]][[1]])
 # rowSums(retro.data.out[[3]][[1]]);colSums(retro.data.out[[3]][[1]])
 # rowSums(retro.data.out[[4]][[1]]);colSums(retro.data.out[[4]][[1]])
@@ -224,3 +259,115 @@ dev.off()
 # 1999/00 detections high for first 3 weeks and then drop off - unlikely for models to converge
 # different sampling effort in 1999/00 - concentrating only on fisher and moving traps to target recapturing fisher
 # 1998/99 might also be worth ignoring as trapping effort became much more focused on fisher
+
+
+####################################################################################
+### START HERE AGAIN, NOW THAT FISHNET GRID MAKES SENSE
+# NEED TO REALLY THINK ABOUT COVARIATES TO BRING IN
+###--- grab covariate data
+glimpse(retro.data.out[[1]]$grid_output)
+aoi <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
+traps.sf <- retro.data.out[[1]]$grid_output$aoi_utm
+
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=traps.sf)
+
+#- Elevation
+# aoi_raster <- cded_raster(aoi) 
+# plot(aoi_raster)
+# plot(traps.sf[1] %>% st_transform(crs = 4326), add= TRUE) # as a check
+# 
+# aoi.cded <- rasterToPoints(aoi_raster) # convert to points for join
+# aoi.cded.sf <- st_as_sf(as.data.frame(aoi.cded), coords = c("x","y"), crs = 4326) # create spatial layer
+# aoi.cded.utm <- st_transform(aoi.cded.sf, crs = 26910) # convert to utm for join distance
+# 
+# sa.elev.dist <- st_nn(aoi, aoi.cded.utm, k=1, returnDist = T)
+# tmp$elev.dist <- unlist(sa.elev.dist$nn)
+# tmp$elev <- aoi.cded.utm$elevation[match(tmp$elev,rownames(aoi.cded.utm))]
+# summary(tmp$elev)
+
+
+
+# load covariates from bcdata
+# using the bc data warehouse option to clip to aoi
+aoi <- aoi %>% st_transform(3005)
+
+# biogeoclimatic zones
+# bcdc_search("Biogeoclimatic zone", res_format = "wms")
+# 3: BEC Map (other, wms, kml)
+# ID: f358a53b-ffde-4830-a325-a5a03ff672c3
+# Name: bec-map
+aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
+aoi.BEC %>% group_by(MAP_LABEL) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
+aoi.BEC %>% group_by(ZONE) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
+aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for study area, at grid cell size
+# proportion of SBS in cell? proportion of ESSF # 139 km2 of ESSF and 685 km2 of SBS overall (also <1 km2 of BAFA)
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=aoi.BEC, aes(fill=ZONE))
+
+# watercourses layer
+# bcdc_search("NTS BC River", res_format = "wms")
+aoi.RLW <- retrieve_geodata_aoi(ID = "414be2d6-f4d9-4f32-b960-caa074c6d36b") 
+#distance of centroid to watercourse layer might be an option
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=aoi.RLW, aes(fill=DESCRIPTION))
+
+# transportation layer (Digital Road Atlas)
+# bcdc_search("road", res_format = "wms")
+aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e")
+# think about density per cell
+aoi.DRA$Length_m <- st_length(aoi.DRA)
+aoi.DRA %>% summarise(sum(Length_m)) %>% st_drop_geometry
+aoi.DRA %>% count(FEATURE_TYPE) %>% st_drop_geometry
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=aoi.DRA, aes(fill=FEATURE_TYPE))
+
+aoi.DRA %>% st_intersection(aoi_grid[,1])
+st_geometry(aoi_grid)
+
+# vegetation data (VRI)
+# bcdc_search("VRI", res_format = "wms")
+aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55")
+summary(aoi.VRI$PROJ_HEIGHT_1)
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=aoi.VRI, aes(fill=PROJ_HEIGHT_1))
+
+aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1)) %>%  
+  summarise(mean = mean(PROJ_HEIGHT_1), min = min(PROJ_HEIGHT_1), max=max(PROJ_HEIGHT_1), sd = sd(PROJ_HEIGHT_1)) %>% st_drop_geometry()
+#mean   min   max    sd
+#19.6   0.2  42.1  9.38
+aoi.VRI$PROJ_HEIGHT_1_cat <- as.factor(ifelse(aoi.VRI$PROJ_HEIGHT_1 < 10, "H0-10",
+                                              ifelse(aoi.VRI$PROJ_HEIGHT_1 < 20, "H10-20",
+                                                     ifelse(aoi.VRI$PROJ_HEIGHT_1 < 30, "H20-30",
+                                                            ifelse(aoi.VRI$PROJ_HEIGHT_1 < 40, "H30-40",
+                                                                   ifelse(aoi.VRI$PROJ_HEIGHT_1 < 50, "H40+"))))))# remove NAs
+aoi.VRI <- aoi.VRI[complete.cases(aoi.VRI$PROJ_HEIGHT_1),]
+ggplot()+
+  geom_sf(data = aoi.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
+  scale_fill_brewer(palette="Greens") +
+  scale_color_brewer(palette="Greens") +
+  geom_sf(data = aoi , lwd=1, col="red", fill=NA) +
+  theme(legend.title=element_blank())
+
+# cutbock (Consolidated Cutblocks)
+# bcdc_search("cutblock", res_format = "wms")
+aoi.CUT <- retrieve_geodata_aoi(ID = "b1b647a6-f271-42e0-9cd0-89ec24bce9f7")
+as.data.frame(aoi.CUT %>% group_by(HARVEST_YEAR) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry())
+aoi.CUT %>% filter(HARVEST_YEAR < 1997) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
+aoi.CUT %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
+# 198/823 # 24% cut in 1996
+# 343/823 # 41% cut in 2022
+ggplot()+
+  geom_sf(data=aoi)+
+  geom_sf(data=aoi.CUT %>% filter(HARVEST_YEAR < 1997), aes(fill=HARVEST_YEAR))
+#proportion of cell harvested
+
+
+# wildfire (Fire Perimeters)
+# bcdc_search("fire", res_format = "wms")
+# no wildfires
