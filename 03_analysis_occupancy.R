@@ -31,7 +31,6 @@ if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
 
-
 ############################--- SET-UP DATA ---##########################
 # Run occupancy models for unmarked and marked live trap data
 # consider that male home ranges ~5.25 km2 and female home ranges ~3.16 km2 (Eric Lofroth's MSc thesis)
@@ -46,7 +45,7 @@ rm(list.of.packages, new.packages) # for housekeeping
 # borrowed code from https://jamesepaterson.github.io/jamespatersonblog/2020-09-01_occupancyintroduction.html
 
 # Load detection history (100 sites with 10 visits each)
-detection_history <- retro.data.out[[1]]$y_21day
+detection_history <- retro.data.out[[2]]$y_21day
 detection_history[detection_history > 0] <- 1 # change to 0 and 1 only
 
 # Examine data
@@ -72,22 +71,14 @@ summary(occu.m1) # Show AIC, estimates (on logit scale), SE, z-scores
 predict(occu.m1, 
         newdata = data.frame(site = 1),
         type = "state")
-##   Predicted         SE     lower     upper
-## 1 0.6209272 0.04861255 0.5221585 0.7105956
 
 # To get real estimate of detection (with 95% CI)
 predict(occu.m1, 
         newdata = data.frame(site = 1),
         type = "det")
-##   Predicted         SE     lower    upper
-## 1  0.478317 0.02018546 0.4389719 0.517933
-# Equivalent to inverse logit
+
 boot::inv.logit(coef(occu.m1)[1]) # Real estimate of occupancy
-##  psi(Int) 
-## 0.6209272
 boot::inv.logit(coef(occu.m1)[2]) # Real estimate of detection
-##   p(Int) 
-## 0.478317
 
 # Load covariate data
 effort <- retro.data.out[[1]]$effort.21days
