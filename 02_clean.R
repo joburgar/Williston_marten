@@ -135,10 +135,10 @@ for(i in 1:length(lttrap)){
 
 marten.data <- list(xlim = bb[1,], ylim = bb[2,], trap.oper = trap.oper,
                     traps = traps.scale, observations = dat.mart, daylookup = daylookup)
-save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".Rdata"))
+save(marten.data, file = paste0("./out/MartenData_",survey.open.year,".RData"))
 }
 
-# load("out/MartenData_1999.Rdata")
+# load("out/MartenData_1999.RData")
 # summary(marten.data$observations) # checked all Rda objects = appear correct
 glimpse(marten.data)
 ############################--- CURRENT DATA ---###########################
@@ -287,7 +287,7 @@ marten.hsdata <- list(J = nrow(traps),
                       edf = edf,
                       sex = sex)
 
-save(marten.hsdata, file = paste0("./out/MartenData_2020.Rda"))
+save(marten.hsdata, file = paste0("./out/MartenData_2020.RData"))
 
 # For the marten only trap data
 coord.scale <- 1000
@@ -346,7 +346,7 @@ martenGrid.hsdata <- list(J = nrow(traps.sc.C1), # 20 traps in each cluster
                       edf = list(edf.marten %>% filter(Grid_Num<21),edf.marten %>% filter(Grid_Num>20)),
                       sex = list(Sex.C1$Sex, Sex.C2$Sex))
 
-save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.Rda"))
+save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.RData"))
 
 
 ###--- for visualization of recaps
