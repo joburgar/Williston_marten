@@ -137,29 +137,29 @@ grid.arrange(traps.out[[1]]$traps.plot,traps.out[[2]]$traps.plot,
 ###--- determine distance of traps and group those that are too close
 # need to convert to utm for m distance
 # espg 26910
-
-traps.utm <- st_transform(traps.out[[1]]$traps.sf, crs=26910)
-st_bbox(traps.utm)
-
-nrow(traps.utm)
-traps.utm$Trap_ID
-traps.utm.3km <- st_buffer(traps.utm, dist=3000)
-traps.utm.5km <- st_buffer(traps.utm, dist=5000)
-traps.utm.10km <- st_buffer(traps.utm, dist=10000)
-
-ggplot(traps.utm) +
-  # geom_sf(aes(col = TrapGroup)) +
-  geom_sf_label(aes(label = Trap_ID))
-
-ggplot()+
-  geom_sf(data=traps.utm)+
-  geom_sf(data=traps.utm.3km, fill=NA, col="blue")+
-  geom_sf(data=traps.utm.5km, fill=NA, col="red")+
-  geom_sf(data=traps.utm.10km, fill=NA, col="green")
-  
-#- distances between traps
-traps.dist <- st_nn(traps.utm, traps.utm, k=nrow(traps.utm), maxdist=10000, returnDist = T, sparse=TRUE)
-
+# to visualise trap distances
+# traps.utm <- st_transform(traps.out[[2]]$traps.sf, crs=26910)
+# st_bbox(traps.utm)
+# 
+# nrow(traps.utm)
+# traps.utm$Trap_ID
+# traps.utm.3km <- st_buffer(traps.utm, dist=3000)
+# traps.utm.5km <- st_buffer(traps.utm, dist=5000)
+# traps.utm.10km <- st_buffer(traps.utm, dist=10000)
+# 
+# ggplot(traps.utm) +
+#   # geom_sf(aes(col = TrapGroup)) +
+#   geom_sf_label(aes(label = Trap_ID))
+# 
+# ggplot()+
+#   geom_sf(data=traps.utm)+
+#   geom_sf(data=traps.utm.3km, fill=NA, col="blue")+
+#   geom_sf(data=traps.utm.5km, fill=NA, col="red")+
+#   geom_sf(data=traps.utm.10km, fill=NA, col="green")
+#   
+# #- distances between traps
+# traps.dist <- st_nn(traps.utm, traps.utm, k=nrow(traps.utm), maxdist=5000, returnDist = T, sparse=TRUE)
+# 
 # not sure going by distance is the best method as lots overlap in distance...
 # changing tactics and setting down a 'grid' and grouping traps that fall within arbitrary grid
 # some traps will be closer to others in different grid but not sure how else to group
@@ -184,17 +184,27 @@ find_grid <- function (input=input, cellsize=cellsize){
   return(list(aoi_utm=aoi_utm, aoi_grid=aoi_grid))
 }
 
-traps.grid <- find_grid(input=traps.utm, cellsize=5000)
+# run the find_grid function for all trap years
+traps.grid <- list()
+for(i in 1:4){
+  traps.grid[[i]] <- find_grid(input=traps.out[[i]]$traps.sf, cellsize=5000)
+}
+
+t96 <- traps.grid[[1]]$aoi_utm
+t97 <- traps.grid[[2]]$aoi_utm
+t98 <- traps.grid[[3]]$aoi_utm
+t99 <- traps.grid[[4]]$aoi_utm
 
 ggplot()+
-  geom_sf(data=traps.grid$aoi_grid, fill=NA)+
-  geom_sf(data=traps.grid$aoi_utm, aes(col=Trap_Grp))
-  
+  geom_sf(data=t99, aes(col=Trap_Grp))
 
-ggplot(traps.grid$aoi_utm)+
+ggplot(t99)+
   geom_sf(aes(col=Trap_Grp))+
   geom_sf_label(aes(label = Trap_Grp))
 
-  
-  
-  
+hist(as.numeric(t96$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
+hist(as.numeric(t97$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
+hist(as.numeric(t98$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
+hist(as.numeric(t99$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
+
+save(traps.grid, file = paste0("./out/retro_traps_grp.RData"))
