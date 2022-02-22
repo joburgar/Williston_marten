@@ -23,7 +23,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("tidyverse", "lubridate","chron","sf","Cairo", "sf", "nngeo", "units","OpenStreetMap", "ggmap")
+list.of.packages <- c("bcdata","bcmaps","tidyverse", "lubridate","chron","sf","Cairo", "sf", "nngeo", "units","OpenStreetMap", "ggmap")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -61,7 +61,7 @@ find_grid <- function (input=input, cellsize=cellsize){
 
 #####################################################################################
 #- function to retrieve geodata from BCGW
-retrieve_geodata_aoi <- function (ID=ID){
+retrieve_geodata_aoi <- function (ID=ID, aoi=aoi){
   aoi.geodata <- bcdc_query_geodata(ID) %>%
     filter(BBOX(st_bbox(aoi))) %>%
     collect()
@@ -273,6 +273,11 @@ ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=traps.sf)
 
+###--- create covariate dataframe to put covariate info
+cov.df <- as.data.frame(array(seq_len(nrow(aoi)),c(nrow(aoi),1)))
+colnames(cov.df) <- c("grid_id")
+
+
 #- Elevation
 # aoi_raster <- cded_raster(aoi) 
 # plot(aoi_raster)
@@ -292,6 +297,8 @@ ggplot()+
 # load covariates from bcdata
 # using the bc data warehouse option to clip to aoi
 aoi <- aoi %>% st_transform(3005)
+aoi_centroid <- st_centroid(aoi) %>% dplyr::select(grid_id) %>% st_transform(crs=26910) # to have in m
+
 
 # biogeoclimatic zones
 # bcdc_search("Biogeoclimatic zone", res_format = "wms")
@@ -303,35 +310,63 @@ aoi.BEC %>% group_by(MAP_LABEL) %>% summarise(Area_km2=sum(Area_km2)) %>% st_dro
 aoi.BEC %>% group_by(ZONE) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
 aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for study area, at grid cell size
 # proportion of SBS in cell? proportion of ESSF # 139 km2 of ESSF and 685 km2 of SBS overall (also <1 km2 of BAFA)
+
+
 ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=aoi.BEC, aes(fill=ZONE))
 
+cov.df$SBS_prop <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.BEC %>% st_transform(crs=26910) %>% filter(ZONE=="SBS"))
+  cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
+  cov.prop <- cov.area/tmp$Area_km2
+  cov.df$SBS_prop[i] <- cov.prop
+}
+
+
 # watercourses layer
 # bcdc_search("NTS BC River", res_format = "wms")
-aoi.RLW <- retrieve_geodata_aoi(ID = "414be2d6-f4d9-4f32-b960-caa074c6d36b") 
+aoi.RLW <- retrieve_geodata_aoi(ID = "414be2d6-f4d9-4f32-b960-caa074c6d36b", 
+                                aoi=st_buffer(traps.sf, dist=10000)%>% st_transform(crs=3005)) # to download enough area for distance measure
 #distance of centroid to watercourse layer might be an option
+aoi.RLW %>% dplyr::count(DESCRIPTION) %>% st_drop_geometry()
+aoi.RLW <- aoi.RLW %>% filter(DESCRIPTION!="Land")
 ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=aoi.RLW, aes(fill=DESCRIPTION))
 
+rlw.dist <- st_nn(aoi_centroid, aoi.RLW %>% st_transform(crs=26910), k=1, returnDist = T)
+cov.df$RLW_dist <- unlist(rlw.dist$dist)
+cov.df$RLW_type <- unlist(rlw.dist$nn)
+cov.df$RLW_type <- aoi.RLW$DESCRIPTION[match(cov.df$RLW_type,rownames(aoi.RLW))]
+
 # transportation layer (Digital Road Atlas)
 # bcdc_search("road", res_format = "wms")
-aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e")
+aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e", aoi=aoi %>% st_transform(crs=3005))
 # think about density per cell
 aoi.DRA$Length_m <- st_length(aoi.DRA)
 aoi.DRA %>% summarise(sum(Length_m)) %>% st_drop_geometry
 aoi.DRA %>% count(FEATURE_TYPE) %>% st_drop_geometry
+
 ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=aoi.DRA, aes(fill=FEATURE_TYPE))
 
-aoi.DRA %>% st_intersection(aoi_grid[,1])
-st_geometry(aoi_grid)
+cov.df$RD_density <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.DRA %>% st_transform(crs=26910))
+  cov.length <- sum(drop_units(tmp2 %>% st_length()*1e-3))
+  cov.prop <- cov.length/tmp$Area_km2
+  cov.df$RD_density[i] <- cov.prop
+}
+
 
 # vegetation data (VRI)
 # bcdc_search("VRI", res_format = "wms")
-aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55")
+aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55", aoi=aoi %>% st_transform(crs=3005))
 summary(aoi.VRI$PROJ_HEIGHT_1)
 ggplot()+
   geom_sf(data=aoi)+
@@ -341,24 +376,55 @@ aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1)) %>%
   summarise(mean = mean(PROJ_HEIGHT_1), min = min(PROJ_HEIGHT_1), max=max(PROJ_HEIGHT_1), sd = sd(PROJ_HEIGHT_1)) %>% st_drop_geometry()
 #mean   min   max    sd
 #19.6   0.2  42.1  9.38
-aoi.VRI$PROJ_HEIGHT_1_cat <- as.factor(ifelse(aoi.VRI$PROJ_HEIGHT_1 < 10, "H0-10",
-                                              ifelse(aoi.VRI$PROJ_HEIGHT_1 < 20, "H10-20",
-                                                     ifelse(aoi.VRI$PROJ_HEIGHT_1 < 30, "H20-30",
-                                                            ifelse(aoi.VRI$PROJ_HEIGHT_1 < 40, "H30-40",
-                                                                   ifelse(aoi.VRI$PROJ_HEIGHT_1 < 50, "H40+"))))))# remove NAs
-aoi.VRI <- aoi.VRI[complete.cases(aoi.VRI$PROJ_HEIGHT_1),]
-ggplot()+
-  geom_sf(data = aoi.VRI, aes(fill=PROJ_HEIGHT_1_cat, col=NA)) +
-  scale_fill_brewer(palette="Greens") +
-  scale_color_brewer(palette="Greens") +
-  geom_sf(data = aoi , lwd=1, col="red", fill=NA) +
-  theme(legend.title=element_blank())
+# from literature (Breault et al. 2021) going with 
+
+# proportion of VRI with projected height >= 20 m
+cov.df$TREE20_prop <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.VRI %>% filter(PROJ_HEIGHT_1>=20) %>% st_transform(crs=26910))
+  cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
+  cov.prop <- cov.area/tmp$Area_km2
+  cov.df$TREE20_prop[i] <- cov.prop
+}
+
+# proportion of VRI with canopy >45%
+# summary(aoi.VRI$CROWN_CLOSURE_CLASS_CD, na.rm=T)
+cov.df$CANOPY_prop <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.VRI %>% filter(CROWN_CLOSURE>=45) %>% st_transform(crs=26910))
+  cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
+  cov.prop <- cov.area/tmp$Area_km2
+  cov.df$CANOPY_prop[i] <- cov.prop
+}
+
+aoi.VRI$edge <- ifelse(aoi.VRI$PROJ_HEIGHT_1<3, "EdgeL3",
+                       ifelse(aoi.VRI$PROJ_HEIGHT_1>=3, "EdgeU3", NA))
+
+aoi.VRI.edge <-aoi.VRI %>% filter(!is.na(edge)) %>% group_by(edge) %>%
+  summarise(across(geometry, ~ st_union(.)), .groups = "keep") %>%
+  summarise(across(geometry, ~ st_combine(.)))
+
+aoi.VRI.edge %>% filter() st_cast(aoi.VRI.edge$geometry, "MULTILINESTRING")
+
+# length of forest edge
+# first created polygons of VRI heights >=3 m and < 3 m
+cov.df$EDGE_density <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.VRI.edge %>% filter(edge=="EdgeL3") %>% st_transform(crs=26910))
+  tmp2 <- st_cast(tmp2, "MULTILINESTRING")
+  cov.length <- sum(drop_units(tmp2 %>% st_length()*1e-3))
+  cov.prop <- cov.length/tmp$Area_km2
+  cov.df$EDGE_density[i] <- cov.prop
+}
 
 # cutbock (Consolidated Cutblocks)
 # bcdc_search("cutblock", res_format = "wms")
-aoi.CUT <- retrieve_geodata_aoi(ID = "b1b647a6-f271-42e0-9cd0-89ec24bce9f7")
+aoi.CUT <- retrieve_geodata_aoi(ID = "b1b647a6-f271-42e0-9cd0-89ec24bce9f7", aoi=aoi %>% st_transform(crs=3005))
 as.data.frame(aoi.CUT %>% group_by(HARVEST_YEAR) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry())
-aoi.CUT %>% filter(HARVEST_YEAR < 1997) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
+aoi.CUT <- aoi.CUT %>% filter(HARVEST_YEAR < 1997)
 aoi.CUT %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
 # 198/823 # 24% cut in 1996
 # 343/823 # 41% cut in 2022
@@ -368,6 +434,26 @@ ggplot()+
 #proportion of cell harvested
 
 
+cov.df$HARVEST_prop <- NA
+for(i in seq_len(nrow(cov.df))){
+  tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
+  tmp2 <- st_intersection(tmp, aoi.CUT %>% st_transform(crs=26910))
+  cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
+  cov.prop <- cov.area/tmp$Area_km2
+  cov.df$HARVEST_prop[i] <- cov.prop
+}
+
+
 # wildfire (Fire Perimeters)
 # bcdc_search("fire", res_format = "wms")
 # no wildfires
+
+
+################################################################################
+
+summary(cov.df)
+write.csv(cov.df,"data/retro.covdata.1996.csv")
+
+################################################################################
+save.image("data/03_analysis_prep.RData")
+################################################################################
