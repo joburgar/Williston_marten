@@ -162,19 +162,28 @@ traps.df$tmp <- NULL
 traps.df %>% filter(Grid_Focus=="fisher") %>% count(Grid_Cell)# 66 fisher focused cells
 traps.df %>% filter(Grid_Focus=="marten") %>% count(Grid_Cell)# 40 marten focused cells
 # traps.df %>% count(Grid_Focus)
+traps.df$Grid <- traps.df$Grid_Cell
+traps.df$Grid <- case_when(traps.df$Grid_Focus=="marten" ~ substring(traps.df$Grid_Cell,1,6),
+                           TRUE ~ as.character(traps.df$Grid_Cell))
+as.data.frame(traps.df %>% group_by(Grid) %>% dplyr::count(Grid_Focus))
 
 traps.sf <- st_as_sf(traps.df, coords=c("Easting","Northing"), crs=26910)
 ggplot()+
   geom_sf(data=traps.sf, aes(fill=Grid_Focus, col=Grid_Focus))
+
+ggplot()+
+  geom_sf(data=traps.sf, aes(fill=Grid, col=Grid))
+
 
 # subset data to just the marten focused Grid Cells
 traps.marten <- data.frame(Grid_Cell = traps.df[traps.df$Grid_Focus=="marten",]$Grid_Cell, 
                            x = traps.df[traps.df$Grid_Focus=="marten",]$Easting, y = traps.df[traps.df$Grid_Focus=="marten",]$Northing)
 traps.marten <- traps.marten[!duplicated(traps.marten$Grid_Cell),]
 traps.marten <- traps.marten %>% arrange(Grid_Cell) 
+
 # tmp <- gsub(".*\\-", "", traps.sf$Grid_Cell)
 # traps.sf$Grid <- as.factor(substr(traps.sf$Grid_Cell, 1, nchar(traps.sf$Grid_Cell)-nchar(tmp)-1))
-# traps.sf %>% count(Grid) %>% st_drop_geometry() # only 
+# traps.sf %>% count(Grid) %>% st_drop_geometry() # only
 
 
 ###--- wrangle detection data
@@ -200,11 +209,16 @@ hsdat.mart$Occ <- as.factor(str_sub(hsdat.mart$`Sampling Session`,-1))
 hsdat.mart <- hsdat.mart %>% dplyr::select(-`Study Area Name`, -Species, -`Sampling Session`) %>% rename("Station"=1, "Animal_ID"=3)
 hsdat.mart$Date <- ymd(hsdat.mart$Date)
 hsdat.mart$Grid_Cell <- traps.df$Grid_Cell[match(hsdat.mart$Station, traps.df$Station)]
+hsdat.mart$Grid <- traps.df$Grid[match(hsdat.mart$Station, traps.df$Station)]
 as.data.frame(hsdat.mart %>% arrange(Grid_Cell, Station))
 as.data.frame(hsdat.mart %>% group_by(Grid_Cell, Station) %>% count(Occ))
+as.data.frame(hsdat.mart %>% group_by(Grid) %>% count(Occ))
 count(hsdat.mart, Station) # 44 stations with detections
-count(hsdat.mart, Grid_Cell) # 42 grid cells with detections
+count(hsdat.mart, Grid_Cell) # 42 marten and fisher focused grid cells with detections
+count(hsdat.mart, Grid) # 30 grids with detections
 
+# recent_occ_data <- list(hsdat, traps.df)
+# save(recent_occ_data, file = "./out/recent_occ_data.RData")
 # Create numeric values for animal ID and grid cells
 # animal ID
 edf <- hsdat.mart %>% dplyr::select(Animal_ID, Occ, Grid_Cell, Sex)
