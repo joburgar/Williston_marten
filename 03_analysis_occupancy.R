@@ -31,7 +31,15 @@ if(length(new.packages)) install.packages(new.packages)
 lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
 
-############################--- SET-UP DATA ---##########################
+############################--- LOAD DATA ---##########################
+
+load("out/retro.data.out.RData")
+load("out/rec.data.out.RData")
+cov.df <- read.csv("data/retro.covdata.1997.csv",row.names=1)
+cov.df <- read.csv("data/rec.covdata.2020.csv",row.names=1)
+retro.data.out[[2]]
+rec.data.out[1]
+
 # Run occupancy models for unmarked and marked live trap data
 # consider that male home ranges ~5.25 km2 and female home ranges ~3.16 km2 (Eric Lofroth's MSc thesis)
 # larger in fire disturbed landscapes in BC/WA during winter, ~13 km2 for males and ~8.5 km2 for females  (Volkmann & Hodges 2021)
@@ -46,6 +54,7 @@ rm(list.of.packages, new.packages) # for housekeeping
 
 # Load detection history (100 sites with 10 visits each)
 detection_history <- retro.data.out[[2]]$y_21day
+detection_history <- rec.data.out$rec_ydata
 detection_history[detection_history > 0] <- 1 # change to 0 and 1 only
 
 # Examine data
@@ -81,7 +90,12 @@ boot::inv.logit(coef(occu.m1)[1]) # Real estimate of occupancy
 boot::inv.logit(coef(occu.m1)[2]) # Real estimate of detection
 
 # Load covariate data
-effort <- retro.data.out[[1]]$effort.21days
+
+# scale(x,center=min(x),scale=diff(range(x)))
+# https://stackoverflow.com/questions/5468280/scale-a-series-between-two-points
+
+effort <- retro.data.out[[2]]$effort.21days
+effort <- rec.data.out$rec_effort
 
 # Build a new unmarkedFramOccu
 sample.unmarkedFrame_cov <- unmarkedFrameOccu( # y is a matrix with observed detection history 
@@ -89,19 +103,26 @@ sample.unmarkedFrame_cov <- unmarkedFrameOccu( # y is a matrix with observed det
   y = as.matrix(detection_history),
   # obsCovs = observation covariates in a list, 
   # each variable has site rows x survey columns
-  obsCovs = list(effort = effort))
+  obsCovs = list(effort = effort),
+  # siteCovs = dataframe with site rows x column variables
+  siteCovs = cov.df)
 
-# siteCovs = dataframe with site rows x column variables
-# siteCovs = site_cov) 
+
 
 # S4 class for occupancy model data
 summary(sample.unmarkedFrame_cov)
 
 occu.m2 <- occu(formula = ~effort # detection formula first
                 ~1,
-                # ~forest + agri, # occupancy formula second,
+                # ~HARVEST_prop + SBS_prop + TREE20_prop + CANOPY_prop, # occupancy formula second,
+                data = sample.unmarkedFrame_cov)
+
+occu.m3 <- occu(formula = ~effort # detection formula first
+                # ~1,
+                ~HARVEST_prop + SBS_prop + TREE20_prop + CANOPY_prop + EDGE_density + RD_density , # occupancy formula second,
                 data = sample.unmarkedFrame_cov)
 
 # Summarize
 summary(occu.m1)
 summary(occu.m2)
+summary(occu.m3)
