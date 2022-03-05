@@ -23,7 +23,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("bcdata","bcmaps","tidyverse", "lubridate","chron","sf","Cairo", "sf", "nngeo", "units","OpenStreetMap", "ggmap")
+list.of.packages <- c("bcdata","bcmaps","tidyverse", "lubridate","chron","sf","Cairo", "sf", "nngeo", "units","OpenStreetMap", "ggmap","rgdal")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -60,7 +60,10 @@ find_grid <- function (input=input, cellsize=cellsize){
 }
 
 #####################################################################################
-#- function to retrieve geodata from BCGW
+
+###--- function to retrieve geodata from BCGW
+droplevels.sfc = function(x, except, exclude, ...) x
+
 retrieve_geodata_aoi <- function (ID=ID, aoi=aoi){
   aoi.geodata <- bcdc_query_geodata(ID) %>%
     filter(BBOX(st_bbox(aoi))) %>%
@@ -68,8 +71,25 @@ retrieve_geodata_aoi <- function (ID=ID, aoi=aoi){
   aoi.geodata <- aoi.geodata %>% st_intersection(aoi)
   aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
   aoi.geodata <- drop_units(aoi.geodata)
+  aoi.geodata <- droplevels.sfc(aoi.geodata, except = geometry)
   return(aoi.geodata)
 }
+
+
+#####################################################################################
+###--- function to retrieve data from downloaded gdb or shapefile
+# Read the feature class
+
+retrieve_gdb_shp_aoi <- function (dsn=dsn, layer=layer){
+  # if a gdb then the dsn should be the path all the way to the '.gdb'
+  aoi.geodata <- st_read(dsn=dsn,layer=layer) %>%
+    st_transform(crs=3005) %>% st_intersection(aoi)
+  aoi.geodata$Area_km2 <- st_area(aoi.geodata)*1e-6
+  aoi.geodata <- drop_units(aoi.geodata)
+  aoi.geodata <- droplevels.sfc(aoi.geodata, except = geometry)
+  return(aoi.geodata)
+}
+
 
 #####################################################################################
 ############################--- RETROSPECTIVE DATA ---##########################
@@ -239,6 +259,7 @@ for(r in 1:length(out.files)){
   
 }
 
+save(retro.data.out, file = paste0("./out/retro.data.out.RData"))
 
 # Look at detections per week and per trap
 # glimpse(retro.data.out[[1]])
@@ -260,12 +281,84 @@ dev.off()
 # different sampling effort in 1999/00 - concentrating only on fisher and moving traps to target recapturing fisher
 # 1998/99 might also be worth ignoring as trapping effort became much more focused on fisher
 
+#####################################################################################
+############################--- RETROSPECTIVE DATA ---##########################
+# load data if not running concurrently (use run_all.R to source)
+# load("out/recent_occ_data.RData")
+###--- DECISION 2022-03-03 go with grid cells for recent data as naming convention is fisher row/column
+
+hsdat <- recent_occ_data[[1]]
+traps.df <- recent_occ_data[[2]]
+
+ltraps.sf <- st_as_sf(traps.df, coords=c("Easting","Northing"), crs=26910)
+ggplot()+
+  geom_sf(data=ltraps.sf, aes(fill=Grid_Focus, col=Grid_Focus))
+
+ggplot()+
+  geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
+
+rec_grid_output <- find_grid(input=ltraps.sf, cellsize = 5000)
+
+ggplot()+
+  geom_sf(data=rec_grid_output$fishnet_grid_sf)+
+  geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
+  
+
+hsdat %>% count(`Sampling Session`)
+hsdat.mart <- hsdat
+hsdat.mart$Occ <- as.factor(str_sub(hsdat.mart$`Sampling Session`,-1))
+hsdat.mart <- hsdat.mart %>% dplyr::select(-`Study Area Name`, -Species, -`Sampling Session`) %>% rename("Station"=1, "Animal_ID"=3)
+hsdat.mart$Date <- ymd(hsdat.mart$Date)
+hsdat.mart$Grid_Cell <- traps.df$Grid_Cell[match(hsdat.mart$Station, traps.df$Station)]
+hsdat.mart$Grid <- traps.df$Grid[match(hsdat.mart$Station, traps.df$Station)]
+as.data.frame(hsdat.mart %>% arrange(Grid_Cell, Station))
+as.data.frame(hsdat.mart %>% group_by(Grid_Cell, Station) %>% count(Occ))
+as.data.frame(hsdat.mart %>% group_by(Grid) %>% count(Occ))
+count(hsdat.mart, Station) # 44 stations with detections
+count(hsdat.mart, Grid_Cell) # 42 marten and fisher focused grid cells with detections
+count(hsdat.mart, Grid) # 30 grids with detections
+
+hsdat.mart %>% arrange(Grid_Cell) %>% count(Grid_Cell, Occ)
+traps.df
+
+hsdat.mart <- hsdat.mart %>% arrange(Grid, Date, Occ)
+hsdat.mart$Count <- 1
+observations <- hsdat.mart %>% group_by(Station, Occ) %>% summarise(Count=sum(Count))
+obs.wide <- pivot_wider(observations, names_from = Occ, values_from = Count, values_fill = 0)
+obs.wide <- obs.wide %>%  arrange(Station)
+duplicated(obs.wide$Station) # all should be false
+
+traps.obs <- left_join(traps.df %>% dplyr::select(Station, Grid), obs.wide)
+traps.obs[is.na(traps.obs)] <- 0
+colnames(traps.obs)[3:6] <- c("Occ3","Occ2","Occ4","Occ1") 
+
+rec_ydata <- traps.obs %>% dplyr::select(-Station) %>% group_by(Grid) %>% summarise_at(vars("Occ3":"Occ1"), sum, na.rm=TRUE)
+rec_ydata <- as.data.frame(rec_ydata)
+row.names(rec_ydata) <- rec_ydata$Grid
+rec_ydata <- rec_ydata %>% dplyr::select(-Grid)
+rec_ydata <- rec_ydata[c("Occ1","Occ2","Occ3","Occ4")]
+rec_ydata <- as.matrix(rec_ydata)
+dim(rec_ydata)
+
+traps.obs$effCount <- 1
+rec_effort <- as.data.frame(traps.obs %>% group_by(Grid) %>% dplyr::count(effCount) %>% dplyr::select(-effCount))
+rec_effort$Occ4 <- rec_effort$Occ3 <- rec_effort$Occ2 <- rec_effort$Occ1 <- rec_effort$n
+row.names(rec_effort) <- rec_effort$Grid
+rec_effort$n <- rec_effort$Grid <- NULL
+rec_effort <- as.matrix(rec_effort)
+
+###--- SINCE GROUPING COV DATA WITH HEXAGONS, NEED TO GROUP OBS DATA WITH HEX TOO ---###
+
+rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output)
+save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
+
 
 ####################################################################################
 ### START HERE AGAIN, NOW THAT FISHNET GRID MAKES SENSE
 # NEED TO REALLY THINK ABOUT COVARIATES TO BRING IN
+# ALSO NEED TO DOWNLOAD HISTORIC VRI DATA
 ###--- grab covariate data
-glimpse(retro.data.out[[1]]$grid_output)
+glimpse(retro.data.out[[2]]$grid_output)
 aoi <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
 traps.sf <- retro.data.out[[1]]$grid_output$aoi_utm
 
@@ -273,33 +366,30 @@ ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=traps.sf)
 
+# aoi <- rec_grid_output$fishnet_grid_sf
+# traps.sf <- rec_grid_output$aoi_utm
+
+
+# create aoi for Williston Basin study area, regardless of year (30km buffer in all directions)
+# aoi <- st_make_grid(st_buffer(aoi %>% st_transform(crs=26910), dist=30000), n=1)
+# aoi <- st_as_sf(aoi)
+# st_write(aoi, paste0(getwd(),"/data/WBaoi.shp"), delete_layer = TRUE)
+
+# Takes too long - clipped in ArcCatalog instead
+# ogrListLayers(paste0(getwd(),"/data/VRI2002_VEG_COMP_LYR_R1_POLY_FINAL.gdb"))
+# retrieve_gdb_shp_aoi(dsn=paste0(getwd(),"/data/VRI2002_VEG_COMP_LYR_R1_POLY_FINAL.gdb"),
+#                      layer="VEG_COMP_LYR_R1_POLY_FINALV4")
+
 ###--- create covariate dataframe to put covariate info
 cov.df <- as.data.frame(array(seq_len(nrow(aoi)),c(nrow(aoi),1)))
 colnames(cov.df) <- c("grid_id")
-
-
-#- Elevation
-# aoi_raster <- cded_raster(aoi) 
-# plot(aoi_raster)
-# plot(traps.sf[1] %>% st_transform(crs = 4326), add= TRUE) # as a check
-# 
-# aoi.cded <- rasterToPoints(aoi_raster) # convert to points for join
-# aoi.cded.sf <- st_as_sf(as.data.frame(aoi.cded), coords = c("x","y"), crs = 4326) # create spatial layer
-# aoi.cded.utm <- st_transform(aoi.cded.sf, crs = 26910) # convert to utm for join distance
-# 
-# sa.elev.dist <- st_nn(aoi, aoi.cded.utm, k=1, returnDist = T)
-# tmp$elev.dist <- unlist(sa.elev.dist$nn)
-# tmp$elev <- aoi.cded.utm$elevation[match(tmp$elev,rownames(aoi.cded.utm))]
-# summary(tmp$elev)
-
-
 
 # load covariates from bcdata
 # using the bc data warehouse option to clip to aoi
 aoi <- aoi %>% st_transform(3005)
 aoi_centroid <- st_centroid(aoi) %>% dplyr::select(grid_id) %>% st_transform(crs=26910) # to have in m
 
-
+# all traps in SBS so this might not be a useful measure
 # biogeoclimatic zones
 # bcdc_search("Biogeoclimatic zone", res_format = "wms")
 # 3: BEC Map (other, wms, kml)
@@ -308,7 +398,7 @@ aoi_centroid <- st_centroid(aoi) %>% dplyr::select(grid_id) %>% st_transform(crs
 aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
 aoi.BEC %>% group_by(MAP_LABEL) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
 aoi.BEC %>% group_by(ZONE) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
-aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for study area, at grid cell size
+aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for 1996 study area, at grid cell size # 1863 km2 for 2020
 # proportion of SBS in cell? proportion of ESSF # 139 km2 of ESSF and 685 km2 of SBS overall (also <1 km2 of BAFA)
 
 
@@ -349,6 +439,9 @@ aoi.DRA <- retrieve_geodata_aoi(ID = "bb060417-b6e6-4548-b837-f9060d94743e", aoi
 aoi.DRA$Length_m <- st_length(aoi.DRA)
 aoi.DRA %>% summarise(sum(Length_m)) %>% st_drop_geometry
 aoi.DRA %>% count(FEATURE_TYPE) %>% st_drop_geometry
+aoi.DRA$Year <- year(aoi.DRA$DATA_CAPTURE_DATE)
+#filter to the appropriate year - only roads built the year of or before study
+aoi.DRA <- aoi.DRA %>% filter(Year<1997)
 
 ggplot()+
   geom_sf(data=aoi)+
@@ -363,50 +456,59 @@ for(i in seq_len(nrow(cov.df))){
   cov.df$RD_density[i] <- cov.prop
 }
 
-
 # vegetation data (VRI)
 # bcdc_search("VRI", res_format = "wms")
-aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55", aoi=aoi %>% st_transform(crs=3005))
+# aoi.VRI <- retrieve_geodata_aoi(ID = "2ebb35d8-c82f-4a17-9c96-612ac3532d55", aoi=aoi %>% st_transform(crs=3005))
+# for retrospective data, use the 2002 VRI, already clipped to Williston Basin
+aoi.VRI <- st_read(dsn="./data", layer="VRI2002_WBaoi")
+aoi.VRI$PROJ_HEIGHT_1 <- aoi.VRI$PROJ_HEIGH
+
 summary(aoi.VRI$PROJ_HEIGHT_1)
 ggplot()+
   geom_sf(data=aoi)+
-  geom_sf(data=aoi.VRI, aes(fill=PROJ_HEIGHT_1))
+  geom_sf(data=aoi.VRI, aes(fill=as.numeric(PROJ_HEIGHT_1)))
 
+aoi.VRI$PROJ_HEIGHT_1 <- as.numeric(aoi.VRI$PROJ_HEIGHT_1)
 aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1)) %>%  
   summarise(mean = mean(PROJ_HEIGHT_1), min = min(PROJ_HEIGHT_1), max=max(PROJ_HEIGHT_1), sd = sd(PROJ_HEIGHT_1)) %>% st_drop_geometry()
 #mean   min   max    sd
 #19.6   0.2  42.1  9.38
-# from literature (Breault et al. 2021) going with 
+# from literature (Breault et al. 2021) going with
+aoi.VRIh <- aoi.VRI %>% filter(!is.na(PROJ_HEIGHT_1))
 
 # proportion of VRI with projected height >= 20 m
 cov.df$TREE20_prop <- NA
 for(i in seq_len(nrow(cov.df))){
   tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
-  tmp2 <- st_intersection(tmp, aoi.VRI %>% filter(PROJ_HEIGHT_1>=20) %>% st_transform(crs=26910))
+  tmp2 <- st_intersection(tmp, aoi.VRIh %>% filter(PROJ_HEIGHT_1>=20) %>% st_transform(crs=26910))
   cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
   cov.prop <- cov.area/tmp$Area_km2
   cov.df$TREE20_prop[i] <- cov.prop
 }
 
 # proportion of VRI with canopy >45%
+aoi.VRI$CROWN_CLOSURE <- as.numeric(aoi.VRI$CROWN_CLOS) # for retrospective data
+aoi.VRI$CROWN_CLOSURE_CLASS_CD <- as.numeric(aoi.VRI$CROWN_CLOSURE_CLASS_CD) # for
+aoi.VRIc <- aoi.VRI %>% filter(!is.na(CROWN_CLOSURE))
+
 # summary(aoi.VRI$CROWN_CLOSURE_CLASS_CD, na.rm=T)
 cov.df$CANOPY_prop <- NA
 for(i in seq_len(nrow(cov.df))){
   tmp <- aoi %>% st_transform(crs=26910) %>% filter(aoi$grid_id==i)
-  tmp2 <- st_intersection(tmp, aoi.VRI %>% filter(CROWN_CLOSURE>=45) %>% st_transform(crs=26910))
+  tmp2 <- st_intersection(tmp, aoi.VRIc %>% filter(CROWN_CLOSURE>=45) %>% st_transform(crs=26910))
   cov.area <- sum(drop_units(tmp2 %>% st_area()*1e-6))
   cov.prop <- cov.area/tmp$Area_km2
   cov.df$CANOPY_prop[i] <- cov.prop
 }
 
-aoi.VRI$edge <- ifelse(aoi.VRI$PROJ_HEIGHT_1<3, "EdgeL3",
-                       ifelse(aoi.VRI$PROJ_HEIGHT_1>=3, "EdgeU3", NA))
+aoi.VRIh$edge <- ifelse(aoi.VRIh$PROJ_HEIGHT_1<3, "EdgeL3",
+                       ifelse(aoi.VRIh$PROJ_HEIGHT_1>=3, "EdgeU3", NA))
 
-aoi.VRI.edge <-aoi.VRI %>% filter(!is.na(edge)) %>% group_by(edge) %>%
+aoi.VRI.edge <-aoi.VRIh %>% filter(!is.na(edge)) %>% group_by(edge) %>%
   summarise(across(geometry, ~ st_union(.)), .groups = "keep") %>%
   summarise(across(geometry, ~ st_combine(.)))
 
-aoi.VRI.edge %>% filter() st_cast(aoi.VRI.edge$geometry, "MULTILINESTRING")
+# aoi.VRI.edge %>% filter() st_cast(aoi.VRI.edge$geometry, "MULTILINESTRING")
 
 # length of forest edge
 # first created polygons of VRI heights >=3 m and < 3 m
@@ -453,6 +555,7 @@ for(i in seq_len(nrow(cov.df))){
 
 summary(cov.df)
 write.csv(cov.df,"data/retro.covdata.1996.csv")
+# write.csv(cov.df,"data/rec.covdata.2020.csv")
 
 ################################################################################
 save.image("data/03_analysis_prep.RData")
