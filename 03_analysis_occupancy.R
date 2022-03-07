@@ -23,7 +23,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("tidyverse","unmarked","Cairo","tictoc")
+list.of.packages <- c("tidyverse","unmarked","Cairo","tictoc","AICcmodavg", "MuMIn","PNWColors")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -37,8 +37,39 @@ load("out/retro.data.out.RData")
 load("out/rec.data.out.RData")
 cov.df <- read.csv("data/retro.covdata.1997.csv",row.names=1)
 cov.df <- read.csv("data/rec.covdata.2020.csv",row.names=1)
-retro.data.out[[2]]
-rec.data.out[1]
+
+
+# ALLcov.df <- as.data.frame(rbind(read.csv("data/retro.covdata.1997.csv",row.names=1),
+#                                  read.csv("data/rec.covdata.2020.csv",row.names=1)))
+# ALLcov.df$Year <- c(rep(1997,38), rep(2020,86))
+# 
+# names(ALLcov.df)
+# ALLcov.df_longer <- ALLcov.df %>% dplyr::select(-grid_id, -RLW_type) %>%
+#   pivot_longer(!Year, names_to = "Covariate", values_to = "Values")
+# 
+# names(ALLcov.df_longer)
+# unique(ALLcov.df_longer$Covariate)
+# ALLcov.df_longer$Covariate <- as.factor(recode(ALLcov.df_longer$Covariate, SBS_prop = "Proportion SBS", RLW_dist = "Distance to Water",
+#        RD_density = "Road Density", TREE20_prop = "Proportion Trees > 20 m", CANOPY_prop = "Proportion Canopy > 45%",
+#        EDGE_density = "Forest Edge Density", HARVEST_prop = "Proportion Harvested"))
+# levels(ALLcov.df_longer$Covariate)
+# 
+# ALLcov.df_longer$Covariate <- fct_relevel(ALLcov.df_longer$Covariate, "Proportion Canopy > 45%", "Proportion Harvested","Proportion SBS", "Proportion Trees > 20 m",
+#             "Distance to Water","Forest Edge Density", "Road Density")
+# 
+# pal = pnw_palette(name="Winter",n=2,type="discrete")
+# 
+# cov.plot <- ggplot(ALLcov.df_longer, aes(x=Covariate, y=Values, fill=as.factor(Year))) + 
+#   geom_boxplot(notch=FALSE) +
+#   facet_wrap(~Covariate, scale="free",nrow=2)+
+#   theme(axis.title.x=element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank()) +
+#   theme(legend.position="bottom")+
+#   theme(legend.title=element_blank())+
+#   scale_fill_manual(values=pal)
+# 
+# Cairo(file="out/marten_cov_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+# cov.plot
+# dev.off()
 
 # Run occupancy models for unmarked and marked live trap data
 # consider that male home ranges ~5.25 km2 and female home ranges ~3.16 km2 (Eric Lofroth's MSc thesis)
@@ -54,7 +85,7 @@ rec.data.out[1]
 
 # Load detection history (100 sites with 10 visits each)
 detection_history <- retro.data.out[[2]]$y_21day
-detection_history <- rec.data.out$rec_ydata
+# detection_history <- rec.data.out$rec_ydata
 detection_history[detection_history > 0] <- 1 # change to 0 and 1 only
 
 # Examine data
@@ -90,12 +121,32 @@ boot::inv.logit(coef(occu.m1)[1]) # Real estimate of occupancy
 boot::inv.logit(coef(occu.m1)[2]) # Real estimate of detection
 
 # Load covariate data
+grid_centroid_utm <- st_coordinates(st_centroid(retro.data.out[[2]]$grid_output$fishnet_grid_sf))
+cov.df$utm_x <- grid_centroid_utm[,1]
+cov.df$utm_y <- grid_centroid_utm[,2]
+
+cov.df$RLW_type <- cov.df$grid_id <- NULL
+
+cov.df$utm_x <- rec.data.out$grid_centroid_utm[,1]
+cov.df$utm_y <- rec.data.out$grid_centroid_utm[,2]
+
+summary(cov.df)
+
+cov.df$RLW_dist_sq <- cov.df$RLW_dist*cov.df$RLW_dist
+cov.df$RD_density_sq <- cov.df$RD_density*cov.df$RD_density
+cov.df$EDGE_density_sq <- cov.df$EDGE_density*cov.df$EDGE_density
+dim(cov.df)
+summary(cov.df)
+
+cov.df_scaled <- as.data.frame(scale(cov.df))
+summary(cov.df_scaled)
+
 
 # scale(x,center=min(x),scale=diff(range(x)))
 # https://stackoverflow.com/questions/5468280/scale-a-series-between-two-points
 
 effort <- retro.data.out[[2]]$effort.21days
-effort <- rec.data.out$rec_effort
+# effort <- rec.data.out$rec_effort
 
 # Build a new unmarkedFramOccu
 sample.unmarkedFrame_cov <- unmarkedFrameOccu( # y is a matrix with observed detection history 
@@ -107,22 +158,96 @@ sample.unmarkedFrame_cov <- unmarkedFrameOccu( # y is a matrix with observed det
   # siteCovs = dataframe with site rows x column variables
   siteCovs = cov.df)
 
-
-
+sample.unmarkedFrame_cov_scaled <- unmarkedFrameOccu( # y is a matrix with observed detection history 
+  # (0's and 1's, one row per site, one column per survey)
+  y = as.matrix(detection_history),
+  # obsCovs = observation covariates in a list, 
+  # each variable has site rows x survey columns
+  obsCovs = list(effort = effort),
+  # siteCovs = dataframe with site rows x column variables
+  siteCovs = cov.df_scaled)
 # S4 class for occupancy model data
-summary(sample.unmarkedFrame_cov)
+summary(sample.unmarkedFrame_cov_scaled)
 
 occu.m2 <- occu(formula = ~effort # detection formula first
                 ~1,
-                # ~HARVEST_prop + SBS_prop + TREE20_prop + CANOPY_prop, # occupancy formula second,
-                data = sample.unmarkedFrame_cov)
+                data = sample.unmarkedFrame_cov_scaled)
 
-occu.m3 <- occu(formula = ~effort # detection formula first
-                # ~1,
-                ~HARVEST_prop + SBS_prop + TREE20_prop + CANOPY_prop + EDGE_density + RD_density , # occupancy formula second,
-                data = sample.unmarkedFrame_cov)
+
+occu.full <- occu(formula = ~effort # detection formula first
+                ~ utm_x + utm_y + SBS_prop + RLW_dist + RLW_dist_sq + RD_density + RD_density_sq + TREE20_prop + 
+                  CANOPY_prop + EDGE_density + EDGE_density_sq + HARVEST_prop, # occupancy formula second,
+                data = sample.unmarkedFrame_cov_scaled)
+
 
 # Summarize
 summary(occu.m1)
 summary(occu.m2)
-summary(occu.m3)
+summary(occu.full)
+
+
+occ_gof <- mb.gof.test(occu.full, nsim = 10, plot.hist = FALSE) # up to nsim=1000 when actually checking final model
+# hide the chisq table to give simpler output
+occ_gof$chisq.table <- NULL
+print(occ_gof)
+
+
+# dredge all possible combinations of the occupancy covariates
+occ_dredge <- dredge(occu.full)
+
+# model comparison to explore the results for occupancy
+mc <- as.data.frame(occ_dredge) %>% 
+  select(starts_with("psi"), df, AICc, delta, weight)
+# # shorten names for printing
+names(mc) <- names(mc) %>%
+  str_remove("psi") %>% 
+  coalesce(names(mc))
+
+# take a quick peak at the model selection table
+mst <- mutate_all(mc, ~ round(., 3)) %>% 
+  head(20) %>% 
+  knitr::kable()
+
+
+# occu.m3 <- occu(formula = ~effort # detection formula first
+#                 ~utm_x + SBS_prop + RLW_dist + RLW_dist_sq + RD_density_sq +
+#                   EDGE_density + HARVEST_prop, # occupancy formula second,
+#                 data = sample.unmarkedFrame_cov_scaled)
+# summary(occu.m3)
+# boot::inv.logit(coef(occu.m3)[1]) #occupancy
+# boot::inv.logit(coef(occu.m3)[9]) #detection (per sampling session)
+
+# select models with the most support for model averaging (< 2 delta aicc)
+occ_dredge_delta <- get.models(occ_dredge, subset = delta <= 2)
+
+# average models based on model weights 
+occ_avg <- model.avg(occ_dredge_delta, fit = TRUE)
+coef(occ_avg)
+
+###--- model with 95 weight - for predictions
+occ_dredge_95wgt <- get.models(occ_dredge, subset = weight <= 0.95)
+occ_avg <- model.avg(occ_dredge_95wgt, fit = TRUE)
+occ_pred <- predict(occ_avg, 
+                    newdata = as.data.frame(pred_surface), 
+                    type = "state")
+
+
+# recent_occ_output <- list(occu.m2=occu.m2, occu.m3=occu.m3, mst=mst,occ_dredge=occ_dredge,occ_avg=occ_avg)
+# save(recent_occ_output, file = paste0("./out/recent_occ_output.RData"))
+
+# retro_occ_output <- list(occu.m2=occu.m2, mst=mst,occ_dredge=occ_dredge,occ_avg=occ_avg)
+# save(retro_occ_output, file = paste0("./out/retro97_occ_output.RData"))
+boot::inv.logit(coef(recent_occ_output$occu.m2)) # Real estimate of occupancy / detection
+boot::inv.logit(coef(retro_occ_output$occu.m2)) # Real estimate of occupancy / detection
+
+boot::inv.logit(coef(recent_occ_output$occu.m3)[1]);boot::inv.logit(coef(recent_occ_output$occu.m3)[9])
+boot::inv.logit(coef(retro_occ_output$occ_avg)[1]);boot::inv.logit(coef(retro_occ_output$occ_avg)[5])
+
+
+coef(recent_occ_output$occu.m3)
+
+
+occ_dredge_delta <- get.models(recent_occ_output$, subset = delta <= 2.5)
+
+# average models based on model weights 
+occ_avg <- model.avg(occ_dredge_delta, fit = TRUE)
