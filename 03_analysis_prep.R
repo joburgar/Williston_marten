@@ -285,7 +285,8 @@ dev.off()
 ############################--- RETROSPECTIVE DATA ---##########################
 # load data if not running concurrently (use run_all.R to source)
 # load("out/recent_occ_data.RData")
-###--- DECISION 2022-03-03 go with grid cells for recent data as naming convention is fisher row/column
+###--- DECISION 2022-Mar-03 go with grid cells for recent data as naming convention is fisher row/column
+###--- UPDATE - 2022-Mar-04 changed mind to go with hexagons, same as retro data for comparison and to consider marten (not fisher) home range size
 
 hsdat <- recent_occ_data[[1]]
 traps.df <- recent_occ_data[[2]]
@@ -303,53 +304,57 @@ ggplot()+
   geom_sf(data=rec_grid_output$fishnet_grid_sf)+
   geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
   
+ltraps.sf <- st_join(ltraps.sf, rec_grid_output$fishnet_grid_sf %>% dplyr::select(grid_id), left=TRUE, largest=TRUE)
+ggplot()+
+  geom_sf(data=ltraps.sf, aes(fill=grid_id, col=grid_id))
 
+hsdat$grid_id <- ltraps.sf$grid_id[match(hsdat$`Sample Station Label`, ltraps.sf$Station)]
 hsdat %>% count(`Sampling Session`)
 hsdat.mart <- hsdat
 hsdat.mart$Occ <- as.factor(str_sub(hsdat.mart$`Sampling Session`,-1))
 hsdat.mart <- hsdat.mart %>% dplyr::select(-`Study Area Name`, -Species, -`Sampling Session`) %>% rename("Station"=1, "Animal_ID"=3)
 hsdat.mart$Date <- ymd(hsdat.mart$Date)
-hsdat.mart$Grid_Cell <- traps.df$Grid_Cell[match(hsdat.mart$Station, traps.df$Station)]
-hsdat.mart$Grid <- traps.df$Grid[match(hsdat.mart$Station, traps.df$Station)]
-as.data.frame(hsdat.mart %>% arrange(Grid_Cell, Station))
-as.data.frame(hsdat.mart %>% group_by(Grid_Cell, Station) %>% count(Occ))
-as.data.frame(hsdat.mart %>% group_by(Grid) %>% count(Occ))
+# if going with fisher sized grids for grid cells (36 km2) use the code below, otherwise scripted for hexagon sized grid cells
+# hsdat.mart$Grid_Cell <- traps.df$Grid_Cell[match(hsdat.mart$Station, traps.df$Station)]
+# hsdat.mart$Grid <- traps.df$Grid[match(hsdat.mart$Station, traps.df$Station)]
+# as.data.frame(hsdat.mart %>% arrange(Grid_Cell, Station))
+# as.data.frame(hsdat.mart %>% group_by(Grid_Cell, Station) %>% count(Occ))
+as.data.frame(hsdat.mart %>% group_by(grid_id) %>% count(Occ))
 count(hsdat.mart, Station) # 44 stations with detections
-count(hsdat.mart, Grid_Cell) # 42 marten and fisher focused grid cells with detections
-count(hsdat.mart, Grid) # 30 grids with detections
+count(hsdat.mart, grid_id) #32 marten and fisher focused grid cells with detections (occassions grouped)
 
-hsdat.mart %>% arrange(Grid_Cell) %>% count(Grid_Cell, Occ)
-traps.df
-
-hsdat.mart <- hsdat.mart %>% arrange(Grid, Date, Occ)
+hsdat.mart %>% arrange(grid_id) %>% count(grid_id, Occ)
+hsdat.mart <- hsdat.mart %>% arrange(grid_id, Date, Occ)
 hsdat.mart$Count <- 1
 observations <- hsdat.mart %>% group_by(Station, Occ) %>% summarise(Count=sum(Count))
 obs.wide <- pivot_wider(observations, names_from = Occ, values_from = Count, values_fill = 0)
 obs.wide <- obs.wide %>%  arrange(Station)
 duplicated(obs.wide$Station) # all should be false
 
-traps.obs <- left_join(traps.df %>% dplyr::select(Station, Grid), obs.wide)
+traps.obs <- left_join(ltraps.sf %>% dplyr::select(Station, grid_id) %>% st_drop_geometry(), obs.wide)
 traps.obs[is.na(traps.obs)] <- 0
 colnames(traps.obs)[3:6] <- c("Occ3","Occ2","Occ4","Occ1") 
 
-rec_ydata <- traps.obs %>% dplyr::select(-Station) %>% group_by(Grid) %>% summarise_at(vars("Occ3":"Occ1"), sum, na.rm=TRUE)
+rec_ydata <- traps.obs %>% dplyr::select(-Station) %>% group_by(grid_id) %>% summarise_at(vars("Occ3":"Occ1"), sum, na.rm=TRUE)
 rec_ydata <- as.data.frame(rec_ydata)
-row.names(rec_ydata) <- rec_ydata$Grid
-rec_ydata <- rec_ydata %>% dplyr::select(-Grid)
+row.names(rec_ydata) <- rec_ydata$grid_id
+rec_ydata <- rec_ydata %>% dplyr::select(-grid_id)
 rec_ydata <- rec_ydata[c("Occ1","Occ2","Occ3","Occ4")]
 rec_ydata <- as.matrix(rec_ydata)
 dim(rec_ydata)
 
 traps.obs$effCount <- 1
-rec_effort <- as.data.frame(traps.obs %>% group_by(Grid) %>% dplyr::count(effCount) %>% dplyr::select(-effCount))
+rec_effort <- as.data.frame(traps.obs %>% group_by(grid_id) %>% dplyr::count(effCount) %>% dplyr::select(-effCount))
 rec_effort$Occ4 <- rec_effort$Occ3 <- rec_effort$Occ2 <- rec_effort$Occ1 <- rec_effort$n
-row.names(rec_effort) <- rec_effort$Grid
-rec_effort$n <- rec_effort$Grid <- NULL
+row.names(rec_effort) <- rec_effort$grid_id
+rec_effort$n <- rec_effort$grid_id <- NULL
 rec_effort <- as.matrix(rec_effort)
+
+grid_centroid_utm <- st_coordinates(st_centroid(rec_grid_output$fishnet_grid_sf))
 
 ###--- SINCE GROUPING COV DATA WITH HEXAGONS, NEED TO GROUP OBS DATA WITH HEX TOO ---###
 
-rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output)
+rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
 save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
 
 
