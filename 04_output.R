@@ -208,3 +208,69 @@ hist(as.numeric(t98$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
 hist(as.numeric(t99$Trap_Grp), breaks = length(unique(t96$Trap_Grp)))
 
 save(traps.grid, file = paste0("./out/retro_traps_grp.RData"))
+
+
+##################################################################################
+###--- Create map for recent trap data
+load("out/rec.data.out.RData")
+rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
+rec.data.out$rec_grid_output
+traps.centroid <- as.data.frame(rec.data.out$grid_centroid_utm)
+traps.centroid$Martens <- rowSums(rec.data.out$rec_ydata)
+traps.centroid$MartenOcc <- ifelse(traps.centroid$Martens>1,1,0)
+
+traps.sf <- st_as_sf(traps.centroid, coords=c("X","Y"), crs=26910)
+
+grid <- rec.data.out$rec_grid_output$fishnet_grid_sf
+grid <- st_as_sf(grid)
+grid.latlon <- st_transform(grid, crs=st_crs(traps.latlon))
+
+Cairo(file="out/hs2020_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+ggplot()+
+  geom_sf(data=grid, fill=NA)+
+  geom_sf(data=rec_grid_output$aoi_utm)
+dev.off()
+
+###--- view OSM data and download appropriate section for study area
+traps.latlon <- st_transform(traps.sf, crs=4326)
+bbox <- st_bbox(grid.latlon)
+
+# use latlon for entire study area
+
+LAT1 = bbox[2] ; LAT2 = bbox[4]
+LON1 = bbox[3] ; LON2 = bbox[1]
+
+#our background map
+map <- openmap(c(LAT2+0.05,LON1+0.05), c(LAT1-0.05,LON2-0.05), 
+               zoom = NULL,
+               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[6],
+               mergeTiles = TRUE)
+
+## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"
+map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+traps.latlon$Longitude <- st_coordinates(traps.latlon)[,1]
+traps.latlon$Latitude <- st_coordinates(traps.latlon)[,2]
+
+traps.plot <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  geom_sf(data=traps.latlon[traps.latlon$Martens!=0,],
+          aes(x=Longitude, y=Latitude, size=Martens), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
+
+Cairo(file="out/hs2020_cnt_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot
+dev.off()
+
+traps.plot.Occ <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  geom_sf(data=traps.latlon[traps.latlon$Martens==1,],
+          aes(x=Longitude, y=Latitude), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
+traps.plot.Occ
+
+Cairo(file="out/hs2020_occ_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.Occ
+dev.off()
