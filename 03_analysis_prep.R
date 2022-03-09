@@ -284,6 +284,7 @@ dev.off()
 #####################################################################################
 ############################--- RETROSPECTIVE DATA ---##########################
 # load data if not running concurrently (use run_all.R to source)
+# load("out/retro.data.out.RData")
 # load("out/recent_occ_data.RData")
 ###--- DECISION 2022-Mar-03 go with grid cells for recent data as naming convention is fisher row/column
 ###--- UPDATE - 2022-Mar-04 changed mind to go with hexagons, same as retro data for comparison and to consider marten (not fisher) home range size
@@ -356,42 +357,53 @@ grid_centroid_utm <- st_coordinates(st_centroid(rec_grid_output$fishnet_grid_sf)
 
 rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
 save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
-
+# load("out/rec.data.out.RData")
 
 ####################################################################################
-### START HERE AGAIN, NOW THAT FISHNET GRID MAKES SENSE
-# NEED TO REALLY THINK ABOUT COVARIATES TO BRING IN
-# ALSO NEED TO DOWNLOAD HISTORIC VRI DATA
-###--- grab covariate data
+###--- grab covariate data based on grid layout for each survey and also area of interest for 1997 and current
 glimpse(retro.data.out[[2]]$grid_output)
-aoi <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
-traps.sf <- retro.data.out[[1]]$grid_output$aoi_utm
+aoi <- retro.data.out[[2]]$grid_output$fishnet_grid_sf
+traps.sf <- retro.data.out[[2]]$grid_output$aoi_utm
 
 ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=traps.sf)
 
-# aoi <- rec_grid_output$fishnet_grid_sf
-# traps.sf <- rec_grid_output$aoi_utm
+# aoi <- rec.data.out$rec_grid_output$fishnet_grid_sf
+# traps.sf <- rec.data.out$rec_grid_output$aoi_utm
 
 
-# create aoi for Williston Basin study area, regardless of year (30km buffer in all directions)
-# aoi <- st_make_grid(st_buffer(aoi %>% st_transform(crs=26910), dist=30000), n=1)
-# aoi <- st_as_sf(aoi)
+# create aoi for Williston Basin study area, regardless of year (30km buffer in all directions) 
+# created WBaoi.shp
 # st_write(aoi, paste0(getwd(),"/data/WBaoi.shp"), delete_layer = TRUE)
 
+
+# now create a 10 km grid buffer following the angle of the actual trap locations
+# aoi <- st_buffer(rec.data.out$rec_grid_output$fishnet_grid_sf %>% st_transform(crs=26910), dist=10000)
+aoi <- st_buffer(retro.data.out[[2]]$grid_output$fishnet_grid_sf %>% st_transform(crs=26910), dist=10000)
+aoi <- find_grid(input=aoi, cellsize = 5000)
+aoi_grid <- aoi$fishnet_grid_sf
 # Takes too long - clipped in ArcCatalog instead
 # ogrListLayers(paste0(getwd(),"/data/VRI2002_VEG_COMP_LYR_R1_POLY_FINAL.gdb"))
 # retrieve_gdb_shp_aoi(dsn=paste0(getwd(),"/data/VRI2002_VEG_COMP_LYR_R1_POLY_FINAL.gdb"),
 #                      layer="VEG_COMP_LYR_R1_POLY_FINALV4")
 
 ###--- create covariate dataframe to put covariate info
-cov.df <- as.data.frame(array(seq_len(nrow(aoi)),c(nrow(aoi),1)))
+# aoi <- st_read(dsn="./data", layer="WBaoi")
+
+ggplot()+
+  geom_sf(data=aoi_grid)+
+  geom_sf(data=traps.sf)
+
+aoi_grid_id <- aoi_grid$grid_id
+
+# cov.df <- as.data.frame(array(seq_len(nrow(aoi)),c(nrow(aoi),1))) # for trap location cov data
+cov.df <- as.data.frame(array(seq_len(length(aoi_grid_id)),c(nrow(aoi_grid),1))) # for regional cov data
 colnames(cov.df) <- c("grid_id")
 
 # load covariates from bcdata
 # using the bc data warehouse option to clip to aoi
-aoi <- aoi %>% st_transform(3005)
+aoi <- aoi_grid %>% st_transform(3005)
 aoi_centroid <- st_centroid(aoi) %>% dplyr::select(grid_id) %>% st_transform(crs=26910) # to have in m
 
 # all traps in SBS so this might not be a useful measure
@@ -400,16 +412,17 @@ aoi_centroid <- st_centroid(aoi) %>% dplyr::select(grid_id) %>% st_transform(crs
 # 3: BEC Map (other, wms, kml)
 # ID: f358a53b-ffde-4830-a325-a5a03ff672c3
 # Name: bec-map
-aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3")
+aoi.BEC <- retrieve_geodata_aoi(ID = "f358a53b-ffde-4830-a325-a5a03ff672c3", aoi=aoi)
 aoi.BEC %>% group_by(MAP_LABEL) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
 aoi.BEC %>% group_by(ZONE) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry
 aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for 1996 study area, at grid cell size # 1863 km2 for 2020
 # proportion of SBS in cell? proportion of ESSF # 139 km2 of ESSF and 685 km2 of SBS overall (also <1 km2 of BAFA)
 
-
+Cairo(file="out/aoi_BEC.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
 ggplot()+
   geom_sf(data=aoi)+
   geom_sf(data=aoi.BEC, aes(fill=ZONE))
+dev.off()
 
 cov.df$SBS_prop <- NA
 for(i in seq_len(nrow(cov.df))){
@@ -424,7 +437,7 @@ for(i in seq_len(nrow(cov.df))){
 # watercourses layer
 # bcdc_search("NTS BC River", res_format = "wms")
 aoi.RLW <- retrieve_geodata_aoi(ID = "414be2d6-f4d9-4f32-b960-caa074c6d36b", 
-                                aoi=st_buffer(traps.sf, dist=10000)%>% st_transform(crs=3005)) # to download enough area for distance measure
+                                aoi= aoi %>% st_transform(crs=3005)) # to download enough area for distance measure
 #distance of centroid to watercourse layer might be an option
 aoi.RLW %>% dplyr::count(DESCRIPTION) %>% st_drop_geometry()
 aoi.RLW <- aoi.RLW %>% filter(DESCRIPTION!="Land")
@@ -446,7 +459,7 @@ aoi.DRA %>% summarise(sum(Length_m)) %>% st_drop_geometry
 aoi.DRA %>% count(FEATURE_TYPE) %>% st_drop_geometry
 aoi.DRA$Year <- year(aoi.DRA$DATA_CAPTURE_DATE)
 #filter to the appropriate year - only roads built the year of or before study
-aoi.DRA <- aoi.DRA %>% filter(Year<1997)
+aoi.DRA <- aoi.DRA %>% filter(Year<1998)
 
 ggplot()+
   geom_sf(data=aoi)+
@@ -530,14 +543,14 @@ for(i in seq_len(nrow(cov.df))){
 # cutbock (Consolidated Cutblocks)
 # bcdc_search("cutblock", res_format = "wms")
 aoi.CUT <- retrieve_geodata_aoi(ID = "b1b647a6-f271-42e0-9cd0-89ec24bce9f7", aoi=aoi %>% st_transform(crs=3005))
-as.data.frame(aoi.CUT %>% group_by(HARVEST_YEAR) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry())
-aoi.CUT <- aoi.CUT %>% filter(HARVEST_YEAR < 1997)
+# as.data.frame(aoi.CUT %>% group_by(HARVEST_YEAR) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry())
+aoi.CUT <- aoi.CUT %>% filter(HARVEST_YEAR < 1998)
 aoi.CUT %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
 # 198/823 # 24% cut in 1996
 # 343/823 # 41% cut in 2022
 ggplot()+
   geom_sf(data=aoi)+
-  geom_sf(data=aoi.CUT %>% filter(HARVEST_YEAR < 1997), aes(fill=HARVEST_YEAR))
+  geom_sf(data=aoi.CUT %>% filter(HARVEST_YEAR < 1998), aes(fill=HARVEST_YEAR))
 #proportion of cell harvested
 
 
@@ -559,7 +572,9 @@ for(i in seq_len(nrow(cov.df))){
 ################################################################################
 
 summary(cov.df)
-write.csv(cov.df,"data/retro.covdata.1996.csv")
+write.csv(cov.df,"data/aoi.covdata.1997.csv")
+# write.csv(cov.df,"data/aoi.covdata.2020.csv")
+# write.csv(cov.df,"data/retro.covdata.1996.csv")
 # write.csv(cov.df,"data/rec.covdata.2020.csv")
 
 ################################################################################
