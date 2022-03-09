@@ -35,7 +35,7 @@ tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
 list.of.packages <- c("tidyverse", "lubridate","chron","bcdata", "bcmaps","sf", "rgdal", "nngeo","Cairo","OpenStreetMap", "ggmap",
-                      "leaflet", "lunar", "zoo", "colortools", "RColorBrewer", "viridis","osmdata", "ggspatial", "gridExtra")
+                      "leaflet", "lunar", "zoo", "colortools", "RColorBrewer", "viridis","osmdata", "ggspatial", "gridExtra","cowplot")
 
 
 # Check you have them and load them
@@ -59,11 +59,11 @@ ltdat %>% group_by(`Trapping session`) %>% count(Status)
 
 ###--- Load formatted data
 create_trap_map <- function(lttrap=lttrap, ltdat=ltdat, year=year){
-  # lttrap=lttrap[[1]]
+  # lttrap=lttrap[[2]]
   # ltdat=ltdat
-  # year="96"
+  # year="97"
    
-  load(paste0("./out/MartenData_19",year,".Rda"))
+  load(paste0("./out/MartenData_19",year,".RData"))
   colnames(lttrap)[2:3] <- c("x","y")
   
   traps <- marten.data$traps
@@ -119,7 +119,7 @@ create_trap_map <- function(lttrap=lttrap, ltdat=ltdat, year=year){
 years <- c("96", "97", "98", "99")
 
 traps.out = list()
-for(i in 1:length(years)){
+for(i in 2:length(years)){
   traps.out[[i]] <- create_trap_map(lttrap=lttrap[[i]], ltdat=ltdat, year=years[i])
 }
 
@@ -213,8 +213,8 @@ save(traps.grid, file = paste0("./out/retro_traps_grp.RData"))
 ##################################################################################
 ###--- Create map for recent trap data
 load("out/rec.data.out.RData")
-rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
-rec.data.out$rec_grid_output
+# rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
+rec.data.out$rec_grid_output$aoi_utm
 traps.centroid <- as.data.frame(rec.data.out$grid_centroid_utm)
 traps.centroid$Martens <- rowSums(rec.data.out$rec_ydata)
 traps.centroid$MartenOcc <- ifelse(traps.centroid$Martens>1,1,0)
@@ -223,12 +223,19 @@ traps.sf <- st_as_sf(traps.centroid, coords=c("X","Y"), crs=26910)
 
 grid <- rec.data.out$rec_grid_output$fishnet_grid_sf
 grid <- st_as_sf(grid)
-grid.latlon <- st_transform(grid, crs=st_crs(traps.latlon))
+grid.latlon <- st_transform(grid, crs=4326)
 
-Cairo(file="out/hs2020_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-ggplot()+
+grid$focus <- rec.data.out$rec_grid_output$aoi_utm$Grid_Focus[match(grid$grid_id,rec.data.out$rec_grid_output$aoi_utm$Trap_Grp)]
+
+hs2019_gridtraps_plot <- ggplot()+
   geom_sf(data=grid, fill=NA)+
-  geom_sf(data=rec_grid_output$aoi_utm)
+  geom_sf(data=rec.data.out$rec_grid_output$aoi_utm, aes(colour=Grid_Focus))+
+  scale_colour_manual(values = c("black","red"))+
+  theme(legend.position = "none")
+
+
+Cairo(file="out/hs2019_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+hs2019_gridtraps_plot
 dev.off()
 
 ###--- view OSM data and download appropriate section for study area
@@ -252,25 +259,136 @@ map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS8
 traps.latlon$Longitude <- st_coordinates(traps.latlon)[,1]
 traps.latlon$Latitude <- st_coordinates(traps.latlon)[,2]
 
-traps.plot <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+traps.plot.2019 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(subtitle = "2019-2020")+
   geom_sf(data=traps.latlon[traps.latlon$Martens!=0,],
           aes(x=Longitude, y=Latitude, size=Martens), col="darkblue")+
   geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
           aes(x=Longitude, y=Latitude), col="cadetblue")+
-  theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank())+
+  theme(legend.position = "bottom")
 
-Cairo(file="out/hs2020_cnt_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-traps.plot
+Cairo(file="out/hs2019_cnt_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.2019
 dev.off()
 
-traps.plot.Occ <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
-  geom_sf(data=traps.latlon[traps.latlon$Martens==1,],
+traps.plot.Occ.2019 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==1,],
           aes(x=Longitude, y=Latitude), col="darkblue")+
-  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==0,],
           aes(x=Longitude, y=Latitude), col="cadetblue")+
   theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
-traps.plot.Occ
 
-Cairo(file="out/hs2020_occ_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-traps.plot.Occ
+Cairo(file="out/hs2019_occ_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.Occ.2019
+dev.off()
+
+###################################################
+###--- Create map for 1996 and 1997 trap data
+load("out/retro.data.out.RData")
+names(retro.data.out[[2]])
+# grid_centroid_utm <- st_coordinates(st_centroid(retro.data.out[[2]]$grid_output$fishnet_grid_sf))
+grid_centroid_utm <- st_coordinates(st_centroid(retro.data.out[[1]]$grid_output$fishnet_grid_sf))
+traps.centroid <- as.data.frame(grid_centroid_utm)
+traps.centroid$Martens <- rowSums(retro.data.out[[1]]$y_21day)
+traps.centroid$MartenOcc <- ifelse(traps.centroid$Martens>1,1,0)
+
+traps.sf <- st_as_sf(traps.centroid, coords=c("X","Y"), crs=26910)
+
+grid <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
+grid <- st_as_sf(grid)
+grid.latlon <- st_transform(grid, crs=4326)
+
+lt1996_gridtraps_plot <- ggplot()+
+  geom_sf(data=grid, fill=NA)+
+  geom_sf(data=retro.data.out[[1]]$grid_output$aoi_utm)
+
+# Cairo(file="out/lt1997_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+# lt1997_gridtraps_plot
+# dev.off()
+
+Cairo(file="out/lt1996_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+lt1996_gridtraps_plot
+dev.off()
+
+###--- view OSM data and download appropriate section for study area
+traps.latlon <- st_transform(traps.sf, crs=4326)
+bbox <- st_bbox(grid.latlon)
+
+# use latlon for entire study area
+
+LAT1 = bbox[2] ; LAT2 = bbox[4]
+LON1 = bbox[3] ; LON2 = bbox[1]
+
+#our background map
+map <- openmap(c(LAT2+0.05,LON1+0.05), c(LAT1-0.05,LON2-0.05), 
+               zoom = NULL,
+               type = c("osm", "stamen-toner", "stamen-terrain","stamen-watercolor", "esri","esri-topo")[6],
+               mergeTiles = TRUE)
+
+## OSM CRS :: "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"
+map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+traps.latlon$Longitude <- st_coordinates(traps.latlon)[,1]
+traps.latlon$Latitude <- st_coordinates(traps.latlon)[,2]
+
+traps.plot.1997 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(subtitle = "1997-1998")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens!=0,],
+          aes(x=Longitude, y=Latitude, size=Martens), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank())+
+  theme(legend.position = "bottom")
+
+
+Cairo(file="out/lt1997_cnt_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.1997
+dev.off()
+
+traps.plot.1996 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  labs(subtitle = "1996-1997")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens!=0,],
+          aes(x=Longitude, y=Latitude, size=Martens), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank())+
+  theme(legend.position = "bottom")
+
+Cairo(file="out/lt1996_cnt_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.1996
+dev.off()
+
+traps.plot.Occ.1997 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==1,],
+          aes(x=Longitude, y=Latitude), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
+
+Cairo(file="out/lt1997_occ_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.Occ.1997
+dev.off()
+
+traps.plot.Occ.1996 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==1,],
+          aes(x=Longitude, y=Latitude), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$MartenOcc==0,],
+          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  theme(axis.title.x=element_blank(),axis.title.y=element_blank()) 
+
+Cairo(file="out/lt1996_occ_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
+traps.plot.Occ.1996
+dev.off()
+
+###################################################
+
+Cairo(file="out/WB_marten969719.PNG",type="png",width=3800,height=2200,pointsize=14,bg="white",dpi=300)
+plot_grid(traps.plot.1996,traps.plot.1997,traps.plot.2019,nrow=1,
+          rel_heights = c(1,1,1.5), rel_widths = c(0.95,1,1.15))
+dev.off()
+
+Cairo(file="out/WB_traps969719.PNG",type="png",width=3800,height=2200,pointsize=14,bg="white",dpi=300)
+plot_grid(lt1996_gridtraps_plot,lt1997_gridtraps_plot,hs2019_gridtraps_plot,nrow=1,
+          rel_heights = c(1,1,1.5), rel_widths = c(0.95,1,1.15))
 dev.off()
