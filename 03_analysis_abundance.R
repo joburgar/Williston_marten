@@ -23,7 +23,7 @@ R_version <- paste0("R-",version$major,".",version$minor)
 tz = Sys.timezone() # specify timezone in BC
 
 # Load Packages
-list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc")
+list.of.packages <- c("tidyverse","parallel","unmarked", "nimble","nimbleSCR","MCMCvis","coda","Cairo","basicMCMCplots","tictoc","bayesplot")
 
 # Check you have them and load them
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
@@ -243,7 +243,7 @@ nmix_effort <- nimbleCode( {
   
   for(k in 2:K) {                # Loop over 2 years (this is equivalent to coding separate indicator variables)
     beta1[k] ~ dunif(-8,8) # year effects on latent abundance
-    alpha1[k] ~ dunif(-8,8) # year effects on  on detection probability
+    alpha1[k] ~ dunif(-8,8) # year effects on detection probability
   }
   
   # Likelihood
@@ -260,29 +260,33 @@ nmix_effort <- nimbleCode( {
     }
     # Derive density and total abundance in year k
     Nyear[k] <- sum(N[1:M[k],k]) # I don't believe you have this latent state in this model (N is the latent state, the unobserved abundance)        
-    # D[k] <- Nyear[k]/area # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
+    D[k] <- Nyear[k]/area[k] # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
   }
 })
 
 
 ###--- wrangle data
+# try nmix for all traps, using the same 21 day sampling bins as for occupancy and recent data
+load("out/rec.data.out.RData")
+load("out/retro.data.out.RData")
 
 # To run as multi-year model, treat each year as a factor, and create arrays with slice for each year
-y_week_9697 <- as.matrix(retro.data.out[[1]][[1]])
-y_week_9798 <- as.matrix(retro.data.out[[2]][[1]])
-y_week_9899 <- as.matrix(retro.data.out[[3]][[1]])
+# Only do so for 1996, 1997, and 2019
+y_21day_9697 <- as.matrix(retro.data.out[[1]]$y_21day)
+y_21day_9798 <- as.matrix(retro.data.out[[2]]$y_21day)
+y_21day_2019 <- as.matrix(rec.data.out$rec_ydata)
 # dimensions are traps by occasions
 
 # M = traps
 # J = occasions
 # K = years
-M <- c(nrow(y_week_9697),nrow(y_week_9798),nrow(y_week_9899)) # number of traps
-J <- c(ncol(y_week_9697),ncol(y_week_9798),ncol(y_week_9899)) # number of occasions
-K <- 3 # try first with 3 years as omitting 1999/00
+M <- c(nrow(y_21day_9697),nrow(y_21day_9798),nrow(y_21day_2019)) # number of traps
+J <- c(ncol(y_21day_9697),ncol(y_21day_9798),ncol(y_21day_2019)) # number of occasions
+K <- 3 # try first with 3 years as omitting 1998/99 and 1999/00 but including 2019
 
-y_week_all <- array(c(y_week_9697, y_week_9798, y_week_9899), dim=c(max(M),max(J),K))
-dim(y_week_all)
-sum(y_week_all)
+y_all <- array(c(y_21day_9697, y_21day_9798, y_21day_2019), dim=c(max(M),max(J),K))
+dim(y_all)
+sum(y_all)
 
 # create year covariate
 year <- array(0, dim=c(max(M),K))
@@ -292,12 +296,12 @@ year[,2] <- c(rep(2,M[2]),rep(NA,max(M)-M[2]))
 year[,3] <- c(rep(3,M[3]),rep(NA,max(M)-M[3]))
 
 # create effort covariate
-effort_9697 <- as.matrix(retro.data.out[[1]][[3]])
-effort_9798 <- as.matrix(retro.data.out[[2]][[3]])
-effort_9899 <- as.matrix(retro.data.out[[3]][[3]])
+effort_9697 <- as.matrix(retro.data.out[[1]]$effort.21days)
+effort_9798 <- as.matrix(retro.data.out[[2]]$effort.21days)
+effort_2019 <- as.matrix(rec.data.out$rec_effort)
 
 # effort_all <- array(c(effort_9697, effort_9798, effort_9899), dim=c(max(M),max(J),K))
-effort_all <- array(c(effort_9697, effort_9798), dim=c(max(M),max(J),K))
+effort_all <- array(c(effort_9697,effort_9798, effort_2019), dim=c(max(M),max(J),K))
 dim(effort_all)
 sum(effort_all)
 
@@ -315,17 +319,22 @@ effort_all = std2(effort_all)
 # ydata_all = nmix.effort.input[[2]][1:2] # I didn't need the year variable
 # names(ydata_all)[1] = "y"
 
-str(ydata_all)
+# 38 hexagons in 1996/97 and 86 in 2019
+area_retro <- 38*21.65
+area_rec <- 86*21.65
+area <- c(area_retro, area_retro, area_rec)
+
 str(data)
 constants <- list(J = J, 
                   M = M,
-                  K = K)
+                  K = K,
+                  area=area)
 
-data <- list(y = y_week_all, 
+data <- list(y = y_all, 
              effort = effort_all)
 
 
-N.init = apply(y_week_all, c(1,3), function(x) max(x, na.rm=TRUE)+1)
+N.init = apply(y_all, c(1,3), function(x) max(x, na.rm=TRUE)+1)
 N.init[is.na(N.init)] <- 1 # to deal with NA's
 
 inits = list(N = N.init,
@@ -336,47 +345,94 @@ inits = list(N = N.init,
              beta1 = c(NA,rnorm(2,0,0.5)))
 
 # Parameters monitored
-params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear")
+params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear","D")
 
 # MCMC settings to test
 # ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
 # MCMC settings
 nc <- 3   ;   ni <- 50000   ;   nb <- 5000   #nt <- 10
 
-# Test with no latent N
-nmixR <- nimbleModel(code = nmix_effort,
-                     data=data,
-                     constants = constants,
-                     inits = inits)
+out <- nimbleMCMC(code = nmix_effort, 
+                  data=data,
+                  constants = constants, 
+                  inits = inits,
+                  monitors = params,
+                  nburnin = nb, 
+                  niter = ni,
+                  nchains = nc,
+                  samplesAsCodaMCMC = TRUE)
 
-nmixR$calculate()
-nmixR$initializeInfo()
+save(out, file = paste0("out/nmix_21day_969719_effort_mcmcoutput.RData"))
+# save(out, file = paste0("out/nmix_21day_9719_effort_mcmcoutput.RData"))
+# load("out/nmix_21day_9719_effort_mcmcoutput.RData")
 
-# compile model to C++#
-nmixC <- compileNimble(nmixR, showCompilerOutput = F)
-# MCMC sampler configurations
-mcmcspec<-configureMCMC(nmixR, monitors=params)
-# build the MCMC specifications
-nmixMCMC <- buildMCMC(mcmcspec)
-# complile the code in S+
-CnmixMCMC <- compileNimble(nmixMCMC, project = nmixR, resetFunctions = TRUE)
-# run MCMC
-tic()
-nmix.results2 <- runMCMC(CnmixMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
-toc()
-# results1 = ni = 22000, nb = 2000
-# results2 = ni = 50000, nb = 5000
+str(out)
+head(out)
+# out <- out[,c(1:5,7:9), drop=TRUE]
+# added in D for ease of calculation BUT VERY UNLIKELY TO BE APPLICABLE - DO NOT USE!!!!
+varnames(out) <- c("1996","1997","2019","N1996","N1997","N2019",
+                   "pd_1996","alpha1[1]","pd_1997","pd_2019",
+                   "la_1996","beta1[1]","la_1997", "la_2019" )
 
-str(nmix.results1)
-MCMCsummary(nmix.results1,round = 4)
-MCMCsummary(nmix.results2,round = 4)
+MCMCsummary(out,round = 4)
+nmix.mcmc.summary <- MCMCsummary(out,round = 4)
+str(nmix.mcmc.summary)
+write.csv(nmix.mcmc.summary,"out/nmix_output_969719.csv")
 
+posterior <- as.matrix(out)
+dim(posterior)
+dimnames(posterior)
+color_scheme_set("teal")
 
 
-MCMCsummary(nmix.results1[,1:3], round = 4)
+Cairo(file="out/nmix_pdla969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_intervals(posterior, pars = c("pd_1996","pd_1997","pd_2019",  # year effects on detection probability
+                                   "la_1996","la_1997","la_2019"))+ # year effects on latent abundance
+  labs(
+    title = "Annual Detection Probability (pd) and Latent Abundance (la) Estimates",
+    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+  )
+dev.off()
+
+Cairo(file="out/nmix_pd969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_intervals(posterior, pars = c("pd_1996","pd_1997","pd_2019"))+ # year effects on latent abundance
+  labs(
+    title = "Annual Detection Probability (pd) Estimates",
+    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+  )
+dev.off()
+
+# mcmc_areas(
+#   posterior, 
+#   pars = c("1996","1997","2019"),
+#   prob = 0.95, # 80% intervals
+#   prob_outer = 0.99, # 99%
+#   point_est = "mean"
+# )
+
+Cairo(file="out/nmix_D969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_areas(posterior, pars = c("1996","1997","2019"), area_method = "equal area") +
+  labs(
+    title = "Estimated Marten Density",
+    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+  )
+dev.off()
+
+
+Cairo(file="out/nmix_N969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_areas(posterior, pars = c("N1996","N1997","N2019"), area_method = "equal area") +
+  labs(
+    title = "Estimated Marten Abundance",
+    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+  )
+dev.off()
+# write.csv(MCMCsummary(nmix.results2),"out/nmix_output_969719.csv")
+# 1996 model didn't converge, similar to occupancy
+
+
+# MCMCsummary(nmix.results2[,1:3], round = 4)
 # saved traceplots
-chainsPlot(nmix.results1,
-           var = c("Nyear", "alpha0"))
+chainsPlot(out)
 
 
 require(mcmcplots)
