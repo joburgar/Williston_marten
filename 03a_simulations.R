@@ -90,118 +90,176 @@ lapply(list.of.packages, require, character.only = TRUE)
 rm(list.of.packages, new.packages) # for housekeeping
 
 #####################################################################################
-load("out/MartenData_1996.Rda")
-glimpse(marten.data)
-trap.oper <- marten.data$trap.oper
-daylookup <- marten.data$daylookup
+load("out/retro.data.out.RData")
+load("out/rec.data.out.RData")
 
-# add week and week occasion to the daylookup
-glimpse(daylookup)
-daylookup$Week <- week(daylookup$Date)
-num.weeks <- round(nrow(daylookup)/7+1)
-week.occ <- rep(1:num.weeks, each = 7)
-daylookup$Occ_week <- week.occ[1:nrow(daylookup)]
-
-# create a covariate and dataset for weekly occasions
-# covariate is number of days trap open per week (0-7)
-
-# make sure to only use full weeks in occasion week (i.e., remove last week if not containing 7 days)
-weeks.to.use <- daylookup %>% count(Occ_week)
-weeks.to.use <- weeks.to.use[weeks.to.use$n==7,]$Occ_week
-
-# observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
-week.effort <- as.data.frame(array(NA, dim=c(nrow(trap.oper), length(weeks.to.use))))
-colnames(week.effort) <- weeks.to.use
-rownames(week.effort) <- rownames(trap.oper)
-
-count = 1 
-for(i in 1:length(week.effort)){
-  # i=8
-  tmp1 <- as.data.frame(t(trap.oper))
-  tmp1$Occ_week <- daylookup$Occ_week[match(rownames(tmp1), as.character(daylookup$Date))]
-  tmp1 <- tmp1 %>% filter(Occ_week %in% weeks.to.use)
-  tmp1 %>% count(Occ_week)
-  tmp2 <- tmp1 %>% filter(Occ_week==i) %>% colSums()
+nmix.sim.data.function <- function(ydata=ydata,effdata=effdata,lambda=lambda, p=p){
+  # ydata <- retro.data.out[[1]]$y_21day
+  # effdata <- retro.data.out[[1]]$effort.21days
+  # lambda <- 3
+  # p <- 0.3
   
-  week.effort[,count] <- tmp2[1:nrow(trap.oper)]
+  print(dim(ydata))
+  print(dim(ydata))
   
-  count <- count + 1
+  M <- nrow(ydata)                     # Number of trap groups
+  J <- ncol(ydata)                      # Number of occasions
+  C <- sim.effort <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data and effort data
+  
+  for(j in 1:J){
+    sim.effort[,j] <- round(rnorm(n=M, mean=mean(effdata), sd=sd(effdata)))
+  }
+  print(sum(sim.effort));print(sum(effdata))
+  
+  # Generate local abundance data (the truth)
+  N <- rpois(n = M, lambda = lambda)
+  print(sum(N)) #118
+  
+  # Conduct repeated measurements (generate replicated counts)
+  for(j in 1:J){
+    C[,j] <- rbinom(n = M, size = N, prob = p)
+  }
+  
+  # # Look at data
+  # # The truth ....
+  # table(N)                    # True abundance distribution
+  # sum(N)                      # True total population size at M sites
+  # sum(N>0)                    # True number of occupied sites
+  # mean(N)                     # True mean abundance (estimate of lambda)
+  # 
+  # # ... and the observations
+  # table(apply(C, 1, max))     # Observed abundance distribution (max count)
+  # sum(apply(C, 1, max))       # Observed total population size at M sites
+  # sum(apply(C, 1, max)>0)     # Observed number of occupied sites
+  # mean(apply(C, 1, max))      # Observed mean "relative abundance"
+  
+  print(sum(C));print(sum(ydata))
+  
+ return(list(M=M,J=J,N=N,C=C,sim.effort=sim.effort)) 
 }
 
-tot.effort <- rowSums(week.effort) # total effort per trap
-summary(tot.effort)
-# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-# 3.00   23.00   39.00   43.31   65.00   98.00
-# try sample sessions (J) = 25, 50, 75, 100 to somewhat mimic actual effort
+#################################################################################
+# Determine sample sizes and simulate observed data array C
+# Modified for the Williston Basin, based off of 1996, 1997 and 2019 data
+# 21 day trapping sessions in 8,9,4 occasions
 
-# Choose sample sizes and prepare observed data array C
-# Modified for the Williston Basin, based off of 1996 data
-# set.seed(24)                # So we all get same data set
-M <- nrow(trap.oper)                     # Number of sites (williston Basin in 1996) = 77
-J <- ncol(trap.oper)                      # Number of abu. measurements per site (rep. counts) = 178
-C <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data
-
-M <- 77                     # Number of sites (williston Basin in 1996) = 77
-J <- 178                      # Number of abu. measurements per site (rep. counts) = 178
-C <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data
+# Parameter values 
+# based on output from run models, have lambda = 3 for 1996, 2.5 for 1997 and 2.0 for 2019
+lambda <- 3 #1996               # Expected abundance
+# based on output from run models, have p = 0.02 for 1996, 0.002 for 1997, and 0.0002 for 2019
+p <- 0.02                    # Probability of detection (per individual)
 
 
-# Parameter values
-lambda <- 1               # Expected abundance
-p <- 0.4                    # Probability of detection (per individual)
+nmix.sim.data.96 <- nmix.sim.data.function(ydata=retro.data.out[[1]]$y_21day,
+                                           effdata=retro.data.out[[1]]$effort.21days,
+                                           lambda=3, p=0.3)
 
-# Generate local abundance data (the truth)
-N <- rpois(n = M, lambda = lambda)
-# sum(N)
+nmix.sim.data.97 <- nmix.sim.data.function(ydata=retro.data.out[[2]]$y_21day,
+                                           effdata=retro.data.out[[2]]$effort.21days,
+                                           lambda=2.5, p=0.2)
 
-# Conduct repeated measurements (generate replicated counts)
-for(j in 1:J){
-  C[,j] <- rbinom(n = M, size = N, prob = p)
+nmix.sim.data.19 <- nmix.sim.data.function(ydata=rec.data.out$rec_ydata,
+                                           effdata=rec.data.out$rec_effort,
+                                           lambda=2, p=0.1)
+
+M <- c(nrow(nmix.sim.data.96$C),nrow(nmix.sim.data.97$C),nrow(nmix.sim.data.19$C)) # number of traps
+J <- c(ncol(nmix.sim.data.96$C),ncol(nmix.sim.data.97$C),ncol(nmix.sim.data.19$C)) # number of occasions
+K <- length(M)
+
+y_all <- array(c(nmix.sim.data.96$C, nmix.sim.data.97$C, nmix.sim.data.19$C),
+               dim=c(max(M),max(J),K))
+dim(y_all)
+sum(y_all)
+
+effort_all <- array(c(nmix.sim.data.96$sim.effort,nmix.sim.data.97$sim.effort,nmix.sim.data.19$sim.effort),
+                    dim=c(max(M),max(J),K))
+dim(effort_all)
+sum(effort_all)
+
+# simple function to standardize variables
+std2=function(x){
+  (x - mean(x,na.rm=TRUE))/(2*sd(x,na.rm=TRUE))
 }
+effort_all = std2(effort_all)
 
-# Look at data
-# The truth ....
-table(N)                    # True abundance distribution
-sum(N)                      # True total population size at M sites
-sum(N>0)                    # True number of occupied sites
-mean(N)                     # True mean abundance (estimate of lambda)
-
-# ... and the observations
-table(apply(C, 1, max))     # Observed abundance distribution (max count)
-sum(apply(C, 1, max))       # Observed total population size at M sites
-sum(apply(C, 1, max)>0)     # Observed number of occupied sites
-mean(apply(C, 1, max))      # Observed mean "relative abundance"
-
-head(cbind(N=N, count1=C[,1], count2=C[,2])) # First 6 sites
-
-cor(C)[1,2]
 
 #####################################################################################
 # Model code and constants
 # Bayesian analysis of the model using NIMBLE:
 
-# Specify model in BUGS language:
-# This code corresponds to "model1.txt" in the AHM code
-Section6p3_code <- nimbleCode( {
-  # Priors
-  # lambda ~ dgamma(0.001, 0.001) # came with generic code
-  lambda ~ dunif(0,100) # for an uninformative prior
-  p ~ dunif(0, 1)
+# from Daniel Eacker (google group listserv initially)
+nmix_effort <- nimbleCode( {
+  # Priors - separate for each year to be able to monitor output
+  alpha0 ~ dnorm(0, 0.5) # intercept on detection probability (a less informative prior perhaps), try plotting: hist(plogis(rnorm(10000,0,sd=sqrt(2))))
+  beta0 ~ dnorm(0, 0.1) # intercept on abundance
+  alpha2 ~ dnorm(0, 0.001)
+  alpha1[1] <- 0 # corner-point constraint for year effects on detection probability
+  beta1[1] <- 0 # corner-point constraint for year effects on latent abundance
+  
+  for(k in 2:K) {                # Loop over 2 years (this is equivalent to coding separate indicator variables)
+    beta1[k] ~ dunif(-8,8) # year effects on latent abundance
+    alpha1[k] ~ dunif(-8,8) # year effects on detection probability
+  }
+  
   # Likelihood
-  for (i in 1:M) {
-    N[i] ~ dpois(lambda)      # State model
-    for (j in 1:J) {
-      C[i,j] ~ dbin(p, N[i]) # Observation model
+  # Ecological model for true abundance
+  for(k in 1:K) {
+    for (i in 1:M[k]){ # length(M)[1] - you needed to use a nested indexing here since there are a different number of sites in different years
+      N[i,k] ~ dpois(lambda[i,k])
+      log(lambda[i,k]) <- beta0 + beta1[k]
+      # Observation model for replicated counts
+      for (j in 1:J[k]){
+        y[i,j,k] ~ dbin(p[i,j,k], N[i,k]) # I tend to call the data "y", but this isn't a big deal
+        logit(p[i,j,k]) <- alpha0 + alpha1[k] * alpha2*effort[i,j,k] # I use a corner-point constraint to model the effects of year
+      }
     }
+    # Derive density and total abundance in year k
+    Nyear[k] <- sum(N[1:M[k],k]) # I don't believe you have this latent state in this model (N is the latent state, the unobserved abundance)        
+    D[k] <- Nyear[k]/area[k] # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
   }
 })
 
+# 38 hexagons in 1996/97 and 86 in 2019
+area_retro <- 38*21.65
+area_rec <- 86*21.65
+area <- c(area_retro, area_retro, area_rec)
+
+constants <- list(J = J, 
+                  M = M,
+                  K = K,
+                  area=area)
+
+data <- list(y = y_all, 
+             effort = effort_all)
+
+N.init = apply(y_all, c(1,3), function(x) max(x, na.rm=TRUE)+1)
+N.init[is.na(N.init)] <- 1 # to deal with NA's
+
+inits = list(N = N.init,
+             alpha0 = rnorm(1,0,0.5),
+             alpha1 = c(NA,rnorm(2,0,0.5)),
+             alpha2 = rnorm(1,0,0.5),
+             beta0 = rnorm(1,0,0.5),
+             beta1 = c(NA,rnorm(2,0,0.5)))
 
 # Parameters monitored
-params <- c("lambda", "p")
+params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear","D")
 
 # MCMC settings
-ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+nc <- 3   ;   ni <- 50000   ;   nb <- 5000
+
+nmix.sim <- list()
+for(i in 1:10){
+nmix.sim[[i]] <- nimbleMCMC(code = nmix_effort, 
+                  data=data,
+                  constants = constants, 
+                  inits = inits,
+                  monitors = params,
+                  nburnin = nb, 
+                  niter = ni,
+                  nchains = nc,
+                  samplesAsCodaMCMC = TRUE)
+}
 
 #####################################################################################
 # Start sets of simulations
