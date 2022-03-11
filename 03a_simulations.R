@@ -249,7 +249,7 @@ params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear","D")
 nc <- 3   ;   ni <- 50000   ;   nb <- 5000
 
 nmix.sim <- list()
-for(i in 1:10){
+for(i in 1:30){
 nmix.sim[[i]] <- nimbleMCMC(code = nmix_effort, 
                   data=data,
                   constants = constants, 
@@ -260,7 +260,104 @@ nmix.sim[[i]] <- nimbleMCMC(code = nmix_effort,
                   nchains = nc,
                   samplesAsCodaMCMC = TRUE)
 }
+save(nmix.sim, file = paste0("out/nmix_sim_969719_mcmcoutput.RData"))
 
+
+nmix.sim.mcmcout <- list()
+for(i in 1:length(nmix.sim)){
+  nmix.sim.mcmcout[[i]] <- MCMCsummary(nmix.sim[[i]],round = 4)
+}
+
+
+nmix.sim.df <- as.data.frame(unlist(nmix.sim.mcmcout))
+nrow(nmix.sim.df)
+head(nmix.sim.df)
+nmix.sim.mcmcout[[1]]
+nmix.sim.df[1:14,]
+colnames(nmix.sim.df)[1] <- c("value")
+rownames(nmix.sim.mcmcout[[1]])
+nmix.sim.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=14, times=30)
+nmix.sim.df$Sim <- rep(paste0("Sim",seq_len(length(nmix.sim.mcmcout))),each=14*7)
+nmix.sim.df$param <- rep(rep(rownames(nmix.sim.mcmcout[[1]]),each=1,times=7), times=30)
+
+nmix.sim.df.alpha <- nmix.sim.df %>% filter(grepl("alpha",param))%>% filter(estimate %in% c("CI_2.5","CI_50","CI_97.5"))
+nmix.sim.df.alpha <- nmix.sim.df.alpha %>% group_by(Sim,estimate) %>% mutate(new = ifelse(param != 'alpha0', value + value[param == 'alpha0'], value) )
+
+nmix.sim.df.beta <- nmix.sim.df %>% filter(grepl("beta",param)) %>% filter(estimate %in% c("CI_2.5","CI_50","CI_97.5"))
+nmix.sim.df.beta <- nmix.sim.df.beta %>% group_by(Sim,estimate) %>% mutate(new = ifelse(param != 'beta0', value + value[param == 'beta0'], value) )
+
+nmix.sim.wide.alpha <- nmix.sim.df.alpha %>% dplyr::select(-value) %>% filter(param!="alpha0") %>% pivot_wider(names_from = estimate, values_from = new)
+nmix.sim.wide.beta <- nmix.sim.df.beta %>% dplyr::select(-value) %>% filter(param!="beta0") %>% pivot_wider(names_from = estimate, values_from = new)
+
+#- probability of detection - NEED TO FIGURE OUT HOW TO BACK TRANSFORM
+nmix.sim.plot.dp <- ggplot(data = nmix.sim.wide.alpha) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_point(aes(x = Sim, y = boot::inv.logit(CI_50)), size=2) +
+  geom_hline(yintercept = c(0.3, 0.2, 0.1), col="grey") +
+  geom_linerange(aes(x = Sim, y = boot::inv.logit(CI_50), ymin=boot::inv.logit(CI_2.5), ymax=boot::inv.logit(CI_97.5))) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Estimated Probability of Detection")+
+  # ggtitle("Simulations of n-mixture models with 100 sampling occasions,\nlambda=c(2,1,0.5), and p=c(0.5,0.4,0.3)")+
+  facet_wrap(~ param)
+
+nmix.sim.plot.dp
+
+#- latent abundance
+Ng96 <- sum(nmix.sim.data.96$N)/nmix.sim.data.96$M # put in as 3 (3.3)
+Ng97 <- sum(nmix.sim.data.97$N)/nmix.sim.data.97$M # put in as 2.5 (2.9)
+Ng19 <- sum(nmix.sim.data.19$N)/nmix.sim.data.19$M # put in as 2 (1.9)
+
+# to rename the facets by survey year
+nmix.sim.wide.beta$param <- as.character(rep(c("1996-1997","1997-1998","2019-2020"),each=1, times=30))
+
+# for horizontal line by facet wrap (param)
+Ngmean <- nmix.sim.wide.beta %>%
+  group_by(param) %>%
+  summarise(Ng = mean(CI_50))
+Ngmean$Ngactual <- c(3.3, 2.9, 1.9)
+
+sum(nmix.sim.data.96$N)
+
+Ngmean$Nactual <- c(sum(nmix.sim.data.96$N),sum(nmix.sim.data.97$N),sum(nmix.sim.data.19$N))
+
+nmix.sim.wide.beta$J <- (rep(c(nmix.sim.data.96$M,nmix.sim.data.97$M,nmix.sim.data.19$M),each=1, times=30))
+nmix.sim.wide.beta$CI_2.5N <- nmix.sim.wide.beta$CI_2.5*nmix.sim.wide.beta$J
+nmix.sim.wide.beta$CI_50N <- nmix.sim.wide.beta$CI_50*nmix.sim.wide.beta$J
+nmix.sim.wide.beta$CI_97.5N <- nmix.sim.wide.beta$CI_97.5*nmix.sim.wide.beta$J
+
+nmix.sim.plot.la <- ggplot(data = nmix.sim.wide.beta) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_hline(data=Ngmean, aes(yintercept=Ngactual), col="grey") +
+  geom_point(aes(x = Sim, y = CI_50), size=2) +
+  geom_linerange(aes(x = Sim, y = CI_50, ymin=CI_2.5, ymax=CI_97.5)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Estimated Median Abundance per Grid Cell")+
+  ggtitle("N-mixture Model Simulations")+
+  facet_wrap(~ param)
+
+Cairo(file="out/nmix.sim.plot.la.PNG",type="png",width=3000,height=2200,pointsize=15,bg="white",dpi=300)
+nmix.sim.plot.la
+dev.off()
+
+nmix.sim.plot.N <- ggplot(data = nmix.sim.wide.beta) +
+  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+  theme(panel.grid = element_blank())+
+  geom_hline(data=Ngmean, aes(yintercept=Nactual), col="grey") +
+  geom_point(aes(x = Sim, y = CI_50N), size=2) +
+  geom_linerange(aes(x = Sim, y = CI_50N, ymin=CI_2.5N, ymax=CI_97.5N)) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Simulation Runs") +
+  ylab("Estimated Median Abundance per Study Area")+
+  ggtitle("N-mixture Model Simulations")+
+  facet_wrap(~ param)
+
+Cairo(file="out/nmix.sim.plot.N.PNG",type="png",width=3000,height=2200,pointsize=15,bg="white",dpi=300)
+nmix.sim.plot.N
+dev.off()
 #####################################################################################
 # Start sets of simulations
 
