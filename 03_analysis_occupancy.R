@@ -44,7 +44,8 @@ cov.df <- read.csv("data/retro.covdata.1997.csv",row.names=1)
 #                                  read.csv("data/rec.covdata.2020.csv",row.names=1)))
 # ALLcov.df$Year <- c(rep(1996,38),rep(1997,38), rep(2020,86))
 
-cov.data.files <- c("data/aoi.covdata.1997.csv","data/retro.covdata.1997.csv",
+cov.data.files <- c("data/aoi.covdata.1996.csv","data/retro.covdata.1996.csv",
+                    "data/aoi.covdata.1997.csv","data/retro.covdata.1997.csv",
                     "data/aoi.covdata.2020.csv","data/rec.covdata.2020.csv")
 
 ALLcov.df <-do.call(rbind,lapply(cov.data.files, read.csv))
@@ -52,9 +53,12 @@ ALLcov.df$X <- ALLcov.df$grid_id <- NULL
 cov.df.nrows <- sapply( cov.data.files, function(f) nrow(read.csv(f)) )
 
 
-ALLcov.df$Year <- c(rep(1997,cov.df.nrows[1]+cov.df.nrows[2]), rep(2019,cov.df.nrows[3]+cov.df.nrows[4]))
+ALLcov.df$Year <- c(rep(1996,cov.df.nrows[1]+cov.df.nrows[2]),
+                    rep(1997,cov.df.nrows[3]+cov.df.nrows[4]), 
+                    rep(2019,cov.df.nrows[5]+cov.df.nrows[6]))
 ALLcov.df$Area <- c(rep("Area",cov.df.nrows[1]), rep("Traps",cov.df.nrows[2]),
-                    rep("Area",cov.df.nrows[3]), rep("Traps",cov.df.nrows[4]))
+                    rep("Area",cov.df.nrows[3]), rep("Traps",cov.df.nrows[4]),
+                    rep("Area",cov.df.nrows[5]), rep("Traps",cov.df.nrows[6]))
 ALLcov.df %>% group_by(Year) %>% count(Area)
 ALLcov.df$Area_Year <- paste(ALLcov.df$Area, ALLcov.df$Year)
 
@@ -71,19 +75,19 @@ levels(ALLcov.df_longer$Covariate)
 ALLcov.df_longer$Covariate <- fct_relevel(ALLcov.df_longer$Covariate, "Proportion Canopy > 45%", "Proportion Harvested","Proportion SBS", "Proportion Trees > 20 m",
             "Distance to Water","Forest Edge Density", "Road Density")
 
-ALLcov.df_longer$Area_Year <- fct_relevel(ALLcov.df_longer$Area_Year,  "Traps 1997","Area 1997","Traps 2019","Area 2019")
+ALLcov.df_longer$Area_Year <- fct_relevel(ALLcov.df_longer$Area_Year,  "Traps 1996","Area 1996", "Traps 1997","Area 1997","Traps 2019","Area 2019")
 
-pal = pnw_palette(name="Winter",n=4,type="discrete")
+pal = pnw_palette(name="Cascades",n=6,type="discrete")
 
 cov.plot <- ggplot(ALLcov.df_longer, aes(x=Covariate, y=Values, fill=as.factor(Area_Year))) +
-  geom_boxplot(notch=TRUE) +
+  geom_boxplot(notch=FALSE) +
   facet_wrap(~Covariate, scale="free",nrow=2)+
   theme(axis.title.x=element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank()) +
   theme(legend.position="bottom")+
   theme(legend.title=element_blank())+
   scale_fill_manual(values=pal)
 
-Cairo(file="out/marten_ALLcov_plot_9719_notch.PNG",type="png",width=3400,height=2400,pointsize=14,bg="white",dpi=300)
+Cairo(file="out/marten_ALLcov_plot_969719.PNG",type="png",width=3400,height=2400,pointsize=14,bg="white",dpi=300)
 cov.plot
 dev.off()
 
