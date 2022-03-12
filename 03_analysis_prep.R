@@ -358,12 +358,13 @@ grid_centroid_utm <- st_coordinates(st_centroid(rec_grid_output$fishnet_grid_sf)
 rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
 save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
 # load("out/rec.data.out.RData")
+# load("out/retro.data.out.RData")
 
 ####################################################################################
 ###--- grab covariate data based on grid layout for each survey and also area of interest for 1997 and current
-glimpse(retro.data.out[[2]]$grid_output)
-aoi <- retro.data.out[[2]]$grid_output$fishnet_grid_sf
-traps.sf <- retro.data.out[[2]]$grid_output$aoi_utm
+glimpse(retro.data.out[[1]]$grid_output)
+aoi <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
+traps.sf <- retro.data.out[[1]]$grid_output$aoi_utm
 
 ggplot()+
   geom_sf(data=aoi)+
@@ -380,7 +381,7 @@ ggplot()+
 
 # now create a 10 km grid buffer following the angle of the actual trap locations
 # aoi <- st_buffer(rec.data.out$rec_grid_output$fishnet_grid_sf %>% st_transform(crs=26910), dist=10000)
-aoi <- st_buffer(retro.data.out[[2]]$grid_output$fishnet_grid_sf %>% st_transform(crs=26910), dist=10000)
+aoi <- st_buffer(retro.data.out[[1]]$grid_output$fishnet_grid_sf %>% st_transform(crs=26910), dist=10000)
 aoi <- find_grid(input=aoi, cellsize = 5000)
 aoi_grid <- aoi$fishnet_grid_sf
 # Takes too long - clipped in ArcCatalog instead
@@ -459,7 +460,7 @@ aoi.DRA %>% summarise(sum(Length_m)) %>% st_drop_geometry
 aoi.DRA %>% count(FEATURE_TYPE) %>% st_drop_geometry
 aoi.DRA$Year <- year(aoi.DRA$DATA_CAPTURE_DATE)
 #filter to the appropriate year - only roads built the year of or before study
-aoi.DRA <- aoi.DRA %>% filter(Year<1998)
+aoi.DRA <- aoi.DRA %>% filter(Year<1997)
 
 ggplot()+
   geom_sf(data=aoi)+
@@ -544,13 +545,13 @@ for(i in seq_len(nrow(cov.df))){
 # bcdc_search("cutblock", res_format = "wms")
 aoi.CUT <- retrieve_geodata_aoi(ID = "b1b647a6-f271-42e0-9cd0-89ec24bce9f7", aoi=aoi %>% st_transform(crs=3005))
 # as.data.frame(aoi.CUT %>% group_by(HARVEST_YEAR) %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry())
-aoi.CUT <- aoi.CUT %>% filter(HARVEST_YEAR < 1998)
+aoi.CUT <- aoi.CUT %>% filter(HARVEST_YEAR < 1997)
 aoi.CUT %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry()
 # 198/823 # 24% cut in 1996
 # 343/823 # 41% cut in 2022
 ggplot()+
   geom_sf(data=aoi)+
-  geom_sf(data=aoi.CUT %>% filter(HARVEST_YEAR < 1998), aes(fill=HARVEST_YEAR))
+  geom_sf(data=aoi.CUT %>% filter(HARVEST_YEAR < 1997), aes(fill=HARVEST_YEAR))
 #proportion of cell harvested
 
 
@@ -572,7 +573,8 @@ for(i in seq_len(nrow(cov.df))){
 ################################################################################
 
 summary(cov.df)
-write.csv(cov.df,"data/aoi.covdata.1997.csv")
+write.csv(cov.df,"data/aoi.covdata.1996.csv")
+# write.csv(cov.df,"data/aoi.covdata.1997.csv")
 # write.csv(cov.df,"data/aoi.covdata.2020.csv")
 # write.csv(cov.df,"data/retro.covdata.1996.csv")
 # write.csv(cov.df,"data/rec.covdata.2020.csv")
