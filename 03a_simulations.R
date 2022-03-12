@@ -145,11 +145,9 @@ nmix.sim.data.function <- function(ydata=ydata,effdata=effdata,lambda=lambda, p=
 
 # Parameter values 
 # based on output from run models, have lambda = 3 for 1996, 2.5 for 1997 and 2.0 for 2019
-lambda <- 3 #1996               # Expected abundance
+# lambda <- 3 #1996               # Expected abundance
 # based on output from run models, have p = 0.02 for 1996, 0.002 for 1997, and 0.0002 for 2019
-p <- 0.02                    # Probability of detection (per individual)
-
-
+# p <- 0.02                    # Probability of detection (per individual)
 nmix.sim.data.96 <- nmix.sim.data.function(ydata=retro.data.out[[1]]$y_21day,
                                            effdata=retro.data.out[[1]]$effort.21days,
                                            lambda=3, p=0.3)
@@ -161,6 +159,9 @@ nmix.sim.data.97 <- nmix.sim.data.function(ydata=retro.data.out[[2]]$y_21day,
 nmix.sim.data.19 <- nmix.sim.data.function(ydata=rec.data.out$rec_ydata,
                                            effdata=rec.data.out$rec_effort,
                                            lambda=2, p=0.1)
+
+# nmix.sim.data <- list(nmix.sim.data.96,nmix.sim.data.97,nmix.sim.data.19)
+# save(nmix.sim.data, file = paste0("out/nmix_sim_969719_data.RData"))
 
 M <- c(nrow(nmix.sim.data.96$C),nrow(nmix.sim.data.97$C),nrow(nmix.sim.data.19$C)) # number of traps
 J <- c(ncol(nmix.sim.data.96$C),ncol(nmix.sim.data.97$C),ncol(nmix.sim.data.19$C)) # number of occasions
@@ -213,21 +214,12 @@ nmix_effort <- nimbleCode( {
         logit(p[i,j,k]) <- alpha0 + alpha1[k] * alpha2*effort[i,j,k] # I use a corner-point constraint to model the effects of year
       }
     }
-    # Derive density and total abundance in year k
-    Nyear[k] <- sum(N[1:M[k],k]) # I don't believe you have this latent state in this model (N is the latent state, the unobserved abundance)        
-    D[k] <- Nyear[k]/area[k] # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
   }
 })
 
-# 38 hexagons in 1996/97 and 86 in 2019
-area_retro <- 38*21.65
-area_rec <- 86*21.65
-area <- c(area_retro, area_retro, area_rec)
-
 constants <- list(J = J, 
                   M = M,
-                  K = K,
-                  area=area)
+                  K = K)
 
 data <- list(y = y_all, 
              effort = effort_all)
@@ -243,7 +235,7 @@ inits = list(N = N.init,
              beta1 = c(NA,rnorm(2,0,0.5)))
 
 # Parameters monitored
-params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear","D")
+params <- c("alpha0", "alpha1", "beta0", "beta1")
 
 # MCMC settings
 nc <- 3   ;   ni <- 50000   ;   nb <- 5000
@@ -260,8 +252,10 @@ nmix.sim[[i]] <- nimbleMCMC(code = nmix_effort,
                   nchains = nc,
                   samplesAsCodaMCMC = TRUE)
 }
-save(nmix.sim, file = paste0("out/nmix_sim_969719_mcmcoutput.RData"))
 
+save(nmix.sim, file = paste0("out/nmix_sim_969719_mcmcoutput.RData"))
+# load("out/nmix_sim_969719_mcmcoutput.RData")
+# str(nmix.sim)
 
 nmix.sim.mcmcout <- list()
 for(i in 1:length(nmix.sim)){
@@ -273,11 +267,11 @@ nmix.sim.df <- as.data.frame(unlist(nmix.sim.mcmcout))
 nrow(nmix.sim.df)
 head(nmix.sim.df)
 nmix.sim.mcmcout[[1]]
-nmix.sim.df[1:14,]
+nmix.sim.df[1:8,]
 colnames(nmix.sim.df)[1] <- c("value")
 rownames(nmix.sim.mcmcout[[1]])
-nmix.sim.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=14, times=30)
-nmix.sim.df$Sim <- rep(paste0("Sim",seq_len(length(nmix.sim.mcmcout))),each=14*7)
+nmix.sim.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=8, times=30)
+nmix.sim.df$Sim <- rep(paste0("Sim",seq_len(length(nmix.sim.mcmcout))),each=8*7)
 nmix.sim.df$param <- rep(rep(rownames(nmix.sim.mcmcout[[1]]),each=1,times=7), times=30)
 
 nmix.sim.df.alpha <- nmix.sim.df %>% filter(grepl("alpha",param))%>% filter(estimate %in% c("CI_2.5","CI_50","CI_97.5"))
@@ -289,13 +283,43 @@ nmix.sim.df.beta <- nmix.sim.df.beta %>% group_by(Sim,estimate) %>% mutate(new =
 nmix.sim.wide.alpha <- nmix.sim.df.alpha %>% dplyr::select(-value) %>% filter(param!="alpha0") %>% pivot_wider(names_from = estimate, values_from = new)
 nmix.sim.wide.beta <- nmix.sim.df.beta %>% dplyr::select(-value) %>% filter(param!="beta0") %>% pivot_wider(names_from = estimate, values_from = new)
 
-#- probability of detection - NEED TO FIGURE OUT HOW TO BACK TRANSFORM
+
+#- probability of detection - NEED TO BACK TRANSFORM CONSIDERING EFFORT VARIABLE WAS SCALED
+# logit(p[i,j,k]) <- alpha0 + alpha1[k] * alpha2*effort[i,j,k]
+# not sure I have it totally correct, but regardless it shows how imprecise probability of detection gets with fewer occassions
+# nmix.sim.wide.alpha <- nmix.sim.wide.alpha %>% ungroup()
+
+
+nmix.sim.wide.alpha <- nmix.sim.wide.alpha %>% 
+  mutate(CI_2.5_sd = case_when(param=="alpha1[1]" ~ boot::inv.logit(CI_2.5/(2*sd(nmix.sim.data.96$sim.effort))),
+                               param=="alpha1[2]" ~ boot::inv.logit(CI_2.5/(2*sd(nmix.sim.data.97$sim.effort))),
+                               param=="alpha1[3]" ~ boot::inv.logit(CI_2.5/(2*sd(nmix.sim.data.19$sim.effort)))))
+
+
+nmix.sim.wide.alpha <- nmix.sim.wide.alpha %>% mutate(CI_50_sd = case_when(param=="alpha1[1]" ~ boot::inv.logit(CI_50/(2*sd(nmix.sim.data.96$sim.effort))),
+                                                                            param=="alpha1[2]" ~ boot::inv.logit(CI_50/(2*sd(nmix.sim.data.97$sim.effort))),
+                                                                            param=="alpha1[3]" ~ boot::inv.logit(CI_50/(2*sd(nmix.sim.data.19$sim.effort)))))
+
+
+nmix.sim.wide.alpha <- nmix.sim.wide.alpha %>% mutate(CI_97.5_sd = case_when(param=="alpha1[1]" ~ boot::inv.logit(CI_97.5/(2*sd(nmix.sim.data.96$sim.effort))),
+                                                                            param=="alpha1[2]" ~ boot::inv.logit(CI_97.5/(2*sd(nmix.sim.data.97$sim.effort))),
+                                                                            param=="alpha1[3]" ~ boot::inv.logit(CI_97.5/(2*sd(nmix.sim.data.19$sim.effort)))))
+
+nmix.sim.wide.alpha$param <- as.character(rep(c("1996-1997","1997-1998","2019-2020"),each=1, times=30))
+
+# for horizontal line by facet wrap (param)
+Pgmean <- nmix.sim.wide.alpha %>%
+  group_by(param) %>%
+  summarise(Pg = mean(CI_50))
+Pgmean$Pg <- c(0.3, 0.2, 0.1)
+
+
 nmix.sim.plot.dp <- ggplot(data = nmix.sim.wide.alpha) +
   theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
   theme(panel.grid = element_blank())+
-  geom_point(aes(x = Sim, y = boot::inv.logit(CI_50)), size=2) +
-  geom_hline(yintercept = c(0.3, 0.2, 0.1), col="grey") +
-  geom_linerange(aes(x = Sim, y = boot::inv.logit(CI_50), ymin=boot::inv.logit(CI_2.5), ymax=boot::inv.logit(CI_97.5))) +
+  geom_point(aes(x = Sim, y = CI_50_sd), size=2) +
+  geom_hline(data= Pgmean, aes(yintercept = Pg), col="grey") +
+  geom_linerange(aes(x = Sim, y = CI_50_sd, ymin=CI_2.5_sd, ymax=CI_97.5_sd)) +
   theme(axis.text.x = element_blank()) +
   xlab("Simulation Runs") +
   ylab("Estimated Probability of Detection")+
@@ -304,10 +328,14 @@ nmix.sim.plot.dp <- ggplot(data = nmix.sim.wide.alpha) +
 
 nmix.sim.plot.dp
 
+Cairo(file="out/nmix.sim.plot.dp.PNG",type="png",width=3000,height=2200,pointsize=15,bg="white",dpi=300)
+nmix.sim.plot.dp
+dev.off()
+
 #- latent abundance
-Ng96 <- sum(nmix.sim.data.96$N)/nmix.sim.data.96$M # put in as 3 (3.3)
-Ng97 <- sum(nmix.sim.data.97$N)/nmix.sim.data.97$M # put in as 2.5 (2.9)
-Ng19 <- sum(nmix.sim.data.19$N)/nmix.sim.data.19$M # put in as 2 (1.9)
+Ng96 <- sum(nmix.sim.data.96$N)/nmix.sim.data.96$M # put in as 3 (3.0)
+Ng97 <- sum(nmix.sim.data.97$N)/nmix.sim.data.97$M # put in as 2.5 (2.5)
+Ng19 <- sum(nmix.sim.data.19$N)/nmix.sim.data.19$M # put in as 2 (2.0)
 
 # to rename the facets by survey year
 nmix.sim.wide.beta$param <- as.character(rep(c("1996-1997","1997-1998","2019-2020"),each=1, times=30))
@@ -316,9 +344,7 @@ nmix.sim.wide.beta$param <- as.character(rep(c("1996-1997","1997-1998","2019-202
 Ngmean <- nmix.sim.wide.beta %>%
   group_by(param) %>%
   summarise(Ng = mean(CI_50))
-Ngmean$Ngactual <- c(3.3, 2.9, 1.9)
-
-sum(nmix.sim.data.96$N)
+Ngmean$Ngactual <- c(3.0, 2.6, 1.9)
 
 Ngmean$Nactual <- c(sum(nmix.sim.data.96$N),sum(nmix.sim.data.97$N),sum(nmix.sim.data.19$N))
 
