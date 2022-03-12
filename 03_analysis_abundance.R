@@ -258,9 +258,6 @@ nmix_effort <- nimbleCode( {
         logit(p[i,j,k]) <- alpha0 + alpha1[k] * alpha2*effort[i,j,k] # I use a corner-point constraint to model the effects of year
       }
     }
-    # Derive density and total abundance in year k
-    Nyear[k] <- sum(N[1:M[k],k]) # I don't believe you have this latent state in this model (N is the latent state, the unobserved abundance)        
-    D[k] <- Nyear[k]/area[k] # area get's tricky to define for N-mixture models since we can't use a density invariant buffer as in SCR
   }
 })
 
@@ -319,16 +316,9 @@ effort_all = std2(effort_all)
 # ydata_all = nmix.effort.input[[2]][1:2] # I didn't need the year variable
 # names(ydata_all)[1] = "y"
 
-# 38 hexagons in 1996/97 and 86 in 2019
-area_retro <- 38*21.65
-area_rec <- 86*21.65
-area <- c(area_retro, area_retro, area_rec)
-
-str(data)
 constants <- list(J = J, 
                   M = M,
-                  K = K,
-                  area=area)
+                  K = K)
 
 data <- list(y = y_all, 
              effort = effort_all)
@@ -345,7 +335,7 @@ inits = list(N = N.init,
              beta1 = c(NA,rnorm(2,0,0.5)))
 
 # Parameters monitored
-params <- c("alpha0", "alpha1", "beta0", "beta1", "Nyear","D")
+params <- c("alpha0", "alpha1", "beta0", "beta1")
 
 # MCMC settings to test
 # ni <- 250   ;   nt <- 1  ;   nb <- 50   ;   nc <- 1
@@ -364,87 +354,75 @@ out <- nimbleMCMC(code = nmix_effort,
 
 save(out, file = paste0("out/nmix_21day_969719_effort_mcmcoutput.RData"))
 # save(out, file = paste0("out/nmix_21day_9719_effort_mcmcoutput.RData"))
-# load("out/nmix_21day_9719_effort_mcmcoutput.RData")
+# load("out/nmix_21day_969719_effort_mcmcoutput.RData")
+
+chainsPlot(out) # traceplots saved - dp is horrid!
 
 str(out)
 head(out)
-# out <- out[,c(1:5,7:9), drop=TRUE]
-# added in D for ease of calculation BUT VERY UNLIKELY TO BE APPLICABLE - DO NOT USE!!!!
-varnames(out) <- c("1996","1997","2019","N1996","N1997","N2019",
-                   "pd_1996","alpha1[1]","pd_1997","pd_2019",
-                   "la_1996","beta1[1]","la_1997", "la_2019" )
 
 MCMCsummary(out,round = 4)
 nmix.mcmc.summary <- MCMCsummary(out,round = 4)
 str(nmix.mcmc.summary)
+nmix.mcmc.summary$param <- row.names(nmix.mcmc.summary)
 write.csv(nmix.mcmc.summary,"out/nmix_output_969719.csv")
 
+nmix.df.alpha <- nmix.mcmc.summary %>% filter(grepl("alpha",param))%>% select("param","2.5%","50%","97.5%")
+nmix.df.alpha <- nmix.df.alpha %>% pivot_longer(!param, names_to="estimate",values_to="value" )
+
+nmix.df.alpha <- nmix.df.alpha %>% group_by(estimate) %>% mutate(new = ifelse(param != 'alpha0', value + value[param == 'alpha0'], value) )
+nmix.df.alpha <- nmix.df.alpha %>% dplyr::select(-value) %>% filter(param!="alpha0") %>% pivot_wider(names_from = estimate, values_from = new)
+
+# back calculate for detection probability
+nmix.df.alpha$effort_2sd <- c(2*sd(effort_all[,,1]),2*sd(effort_all[,,2]),2*sd(effort_all[,,3]))
+nmix.df.alpha <- nmix.df.alpha %>% mutate(across(`2.5%`:`97.5%`, ~ boot::inv.logit(.x*effort_2sd)))
+write.csv(nmix.df.alpha,"out/nmix_alpha_969719.csv")
+
+
+varnames(out) <- c("alpha0","dp 1996-1997","dp 1997-1998","dp 2019-2020",
+                   "beta0","1996-1997","1997-1998", "2019-2020" )
+str(out)
 posterior <- as.matrix(out)
-dim(posterior)
 dimnames(posterior)
 color_scheme_set("teal")
+str(posterior)
 
+dimnames(posterior)
+# get annual coefficients and backtransform from scaled effort variable
+posterior[,2] <- posterior[,1]+posterior[,2]
+posterior[,3] <- posterior[,1]+posterior[,3]
+posterior[,4] <- posterior[,1]+posterior[,4]
 
-Cairo(file="out/nmix_pdla969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
-mcmc_intervals(posterior, pars = c("pd_1996","pd_1997","pd_2019",  # year effects on detection probability
-                                   "la_1996","la_1997","la_2019"))+ # year effects on latent abundance
+posterior[,2] <- boot::inv.logit(posterior[,2]*(2*sd(effort_all[,,1])))
+posterior[,3] <- boot::inv.logit(posterior[,3]*(2*sd(effort_all[,,2])))
+posterior[,4] <- boot::inv.logit(posterior[,4]*(2*sd(effort_all[,,3])))
+
+Cairo(file="out/nmix_dp969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+# mcmc_intervals(posterior, pars = c("dp 1996-1997","dp 1997-1998","dp 2019-2020"))+ # year effects on latent abundance
+#   labs(
+#     title = "Annual Detection Probability (dp) Estimates",
+#     subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+#   )
+mcmc_areas(posterior, pars = c("dp 1996-1997","dp 1997-1998","dp 2019-2020"))+ # year effects on latent abundance
   labs(
-    title = "Annual Detection Probability (pd) and Latent Abundance (la) Estimates",
+    title = "Estimated Detection Probability (dp)",
     subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
   )
 dev.off()
 
-Cairo(file="out/nmix_pd969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
-mcmc_intervals(posterior, pars = c("pd_1996","pd_1997","pd_2019"))+ # year effects on latent abundance
+dimnames(posterior)
+# get annual coefficients
+posterior[,6] <- posterior[,5]+posterior[,6]
+posterior[,7] <- posterior[,5]+posterior[,7]
+posterior[,8] <- posterior[,5]+posterior[,8]
+
+Cairo(file="out/nmix_Ng969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_areas(posterior, pars = c("1996-1997","1997-1998","2019-2020"), area_method = "equal area")+ # year effects on latent abundance
   labs(
-    title = "Annual Detection Probability (pd) Estimates",
-    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
+    title = "Estimated Median Abundance per Grid Cell",
+    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (recent) data"
   )
 dev.off()
-
-# mcmc_areas(
-#   posterior, 
-#   pars = c("1996","1997","2019"),
-#   prob = 0.95, # 80% intervals
-#   prob_outer = 0.99, # 99%
-#   point_est = "mean"
-# )
-
-Cairo(file="out/nmix_D969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
-mcmc_areas(posterior, pars = c("1996","1997","2019"), area_method = "equal area") +
-  labs(
-    title = "Estimated Marten Density",
-    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
-  )
-dev.off()
-
-
-Cairo(file="out/nmix_N969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
-mcmc_areas(posterior, pars = c("N1996","N1997","N2019"), area_method = "equal area") +
-  labs(
-    title = "Estimated Marten Abundance",
-    subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
-  )
-dev.off()
-# write.csv(MCMCsummary(nmix.results2),"out/nmix_output_969719.csv")
-# 1996 model didn't converge, similar to occupancy
-
-
-# MCMCsummary(nmix.results2[,1:3], round = 4)
-# saved traceplots
-chainsPlot(out)
-
-
-require(mcmcplots)
-colnames(out)
-mcmcplot(out[,1:16])
-MCMCsummary(out[[1]])
-
-as.mcmc.list(out)
-nrow(y_week)
-out_all <- MCMCsummary(out[,1:16])
-str(out)
-77+105+101+(4*22)
 
 
 # Calculate ESS effective sample size
