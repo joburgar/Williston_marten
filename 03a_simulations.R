@@ -162,6 +162,10 @@ nmix.sim.data.19 <- nmix.sim.data.function(ydata=rec.data.out$rec_ydata,
 
 # nmix.sim.data <- list(nmix.sim.data.96,nmix.sim.data.97,nmix.sim.data.19)
 # save(nmix.sim.data, file = paste0("out/nmix_sim_969719_data.RData"))
+# load("out/nmix_sim_969719_data.RData")
+# nmix.sim.data.96 <- nmix.sim.data[[1]]
+# nmix.sim.data.97 <- nmix.sim.data[[2]]
+# nmix.sim.data.19 <- nmix.sim.data[[3]]
 
 M <- c(nrow(nmix.sim.data.96$C),nrow(nmix.sim.data.97$C),nrow(nmix.sim.data.19$C)) # number of traps
 J <- c(ncol(nmix.sim.data.96$C),ncol(nmix.sim.data.97$C),ncol(nmix.sim.data.19$C)) # number of occasions
@@ -263,7 +267,12 @@ for(i in 1:length(nmix.sim)){
 }
 
 
+nmix.sim2.df <- as.data.frame(unlist(nmix.sim2.mcmcout))
+colnames(nmix.sim2.df) <- "mcmcoutput"
 nmix.sim.df <- as.data.frame(unlist(nmix.sim.mcmcout))
+colnames(nmix.sim.df) <- "mcmcoutput"
+nmix.sim.df <- rbind(nmix.sim2.df, nmix.sim.df)
+
 nrow(nmix.sim.df)
 head(nmix.sim.df)
 nmix.sim.mcmcout[[1]]
@@ -271,7 +280,7 @@ nmix.sim.df[1:8,]
 colnames(nmix.sim.df)[1] <- c("value")
 rownames(nmix.sim.mcmcout[[1]])
 nmix.sim.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=8, times=30)
-nmix.sim.df$Sim <- rep(paste0("Sim",seq_len(length(nmix.sim.mcmcout))),each=8*7)
+nmix.sim.df$Sim <- rep(paste0("Sim",seq_len(30)),each=8*7)
 nmix.sim.df$param <- rep(rep(rownames(nmix.sim.mcmcout[[1]]),each=1,times=7), times=30)
 
 nmix.sim.df.alpha <- nmix.sim.df %>% filter(grepl("alpha",param))%>% filter(estimate %in% c("CI_2.5","CI_50","CI_97.5"))
@@ -384,193 +393,6 @@ nmix.sim.plot.N <- ggplot(data = nmix.sim.wide.beta) +
 Cairo(file="out/nmix.sim.plot.N.PNG",type="png",width=3000,height=2200,pointsize=15,bg="white",dpi=300)
 nmix.sim.plot.N
 dev.off()
-#####################################################################################
-# Start sets of simulations
-
-# create function to run through simulations
-nmix.function <- function(simname=simname, M=77, J=J, lambda=lambda, p=p, numsim=25){
-  
-  nmix.sim <- vector('list', numsim)
-  names(nmix.sim) <- paste0('nmix.sim', seq_along(nmix.sim))
-  for(i in seq_along(nmix.sim)){
-    
-    C <- matrix(NA, nrow = M, ncol = J) # to contain the obs. data
-    
-    # Generate local abundance data (the truth)
-    N <- rpois(n = M, lambda = lambda)
-
-    # Conduct repeated measurements (generate replicated counts)
-    for(j in 1:J){
-      C[,j] <- rbinom(n = M, size = N, prob = p)
-    }
-    
-    # Bundle and summarize data set
-    win.data <- list(C = C, M = nrow(C), J = ncol(C))
-    
-    # Specify initial values
-    Nst <- apply(C, 1, max)       # Avoid data/model/inits conflict
-    inits <- function(){list(N = Nst)}
-    
-    nmix.sim.out <- nimbleMCMC(code = Section6p3_code, 
-                                 constants = win.data, 
-                                 inits = inits,
-                                 monitors = params,
-                                 niter = ni, 
-                                 nburnin = nb,
-                                 nchains = nc,
-                                 samplesAsCodaMCMC = TRUE)
-    nmix.sim[[i]] <- MCMCsummary(nmix.sim.out, round = 4)
-  }
-  
-  save("nmix.sim",file=paste0("out/nmixsim/out.nmix.",simname,".RData"))
-  return(nmix.sim)
-  
-}
-
-
-# Run nimble from R with output as Coda MCMC object
-# run 25 models for each simulated data set
-# J = 100, 50
-# lambda = 2, 1, 0.5
-# p = 0.5, 0.4, 0.3
-
-# Sim01 = J = 100, lambda = 2, p = 0.5
-# Sim02 = J = 100, lambda = 2, p = 0.4
-# Sim03 = J = 100, lambda = 2, p = 0.3
-# Sim04 = J = 100, lambda = 1, p = 0.5
-# Sim05 = J = 100, lambda = 1, p = 0.4
-# Sim06 = J = 100, lambda = 1, p = 0.3
-# Sim07 = J = 100, lambda = 0.5, p = 0.5
-# Sim08 = J = 100, lambda = 0.5, p = 0.4
-# Sim09 = J = 100, lambda = 0.5, p = 0.3
-# Sim11 = J = 50, lambda = 2, p = 0.5
-# Sim12 = J = 50, lambda = 2, p = 0.4
-# Sim13 = J = 50, lambda = 2, p = 0.3
-# Sim14 = J = 50, lambda = 1, p = 0.5
-# Sim15 = J = 50, lambda = 1, p = 0.4
-# Sim16 = J = 50, lambda = 1, p = 0.3
-# Sim17 = J = 50, lambda = 0.5, p = 0.5
-# Sim18 = J = 50, lambda = 0.5, p = 0.4
-# Sim19 = J = 50, lambda = 0.5, p = 0.3
-
-
-###--- Simulation runs
-# for(i in 1:10){
-#   (sum(rpois(100,2)))
-# }
-# 
-# mean(204, 207, 211, 184, 232, 210, 191, 227, 180, 183)
-
-nmix.Sim01 <- nmix.function(simname=c("Sim01"), J=100, lambda=2, p=0.5)
-nmix.Sim02 <- nmix.function(simname=c("Sim02"), J=100, lambda=2, p=0.4)
-nmix.Sim03 <- nmix.function(simname=c("Sim03"), J=100, lambda=2, p=0.3)
-nmix.Sim04 <- nmix.function(simname=c("Sim04"), J=100, lambda=1, p=0.5)
-nmix.Sim05 <- nmix.function(simname=c("Sim05"), J=100, lambda=1, p=0.4)
-nmix.Sim06 <- nmix.function(simname=c("Sim06"), J=100, lambda=1, p=0.3)
-nmix.Sim07 <- nmix.function(simname=c("Sim07"), J=100, lambda=0.5, p=0.5)
-nmix.Sim08 <- nmix.function(simname=c("Sim08"), J=100, lambda=0.5, p=0.4)
-nmix.Sim09 <- nmix.function(simname=c("Sim09"), J=100, lambda=0.5, p=0.3)
-
-
-# for some reason the J=50 sims didn't run - not sure why but letting it go for now
-# nmix.Sim11 <- nmix.function(simname=c("Sim11"), J=50, lambda=2, p=0.5)
-# nmix.Sim12 <- nmix.function(simname=c("Sim12"), J=50, lambda=2, p=0.4)
-# nmix.Sim13 <- nmix.function(simname=c("Sim13"), J=50, lambda=2, p=0.3)
-# nmix.Sim14 <- nmix.function(simname=c("Sim14"), J=50, lambda=1, p=0.5)
-# nmix.Sim15 <- nmix.function(simname=c("Sim15"), J=50, lambda=1, p=0.4)
-# nmix.Sim16 <- nmix.function(simname=c("Sim16"), J=50, lambda=1, p=0.3)
-# nmix.Sim17 <- nmix.function(simname=c("Sim17"), J=50, lambda=0.5, p=0.5)
-# nmix.Sim18 <- nmix.function(simname=c("Sim18"), J=50, lambda=0.5, p=0.4)
-# nmix.Sim19 <- nmix.function(simname=c("Sim19"), J=50, lambda=0.5, p=0.3)
-
-
-###---
-# Load simulated runs
-# forgot to save actual N - should be ~200
-load("out/nmixsim/out.nmix.Sim01.RData")
-list.sims <- list.files("out/nmixsim/")
-
-nmix.sim.out <- vector('list', length(list.sims))
-for(i in 1:length(list.sims)){
-  load(paste0("out/nmixsim/",list.sims[i]))
-  nmix.sim.out[[i]] <- nmix.sim
-  }
-
-nmix.sim.df <- as.data.frame(unlist(nmix.sim.out))
-nrow(nmix.sim.df)
-head(nmix.sim.df)
-nmix.sim.df[1:14,]
-colnames(nmix.sim.df)[1] <- c("value")
-nmix.sim.df$estimate <- rep(c("mean","sd","CI_2.5","CI_50","CI_97.5","Rhat","n.eff"), each=2, time=25*length(list.sims))
-nmix.sim.df$param <- rep(c("lambda","p"),each=1, time=7*25*length(list.sims))
-nmix.sim.df$Sim <- rep(paste0("Sim0",seq_len(length(list.sims))),each=14*25)
-nmix.sim.df$Run <- rep(paste0("Run", seq_len(25)),each=14, time=length(list.sims))
-nmix.sim.wide <- pivot_wider(nmix.sim.df, names_from = estimate, values_from = value)
-
-# plot simulations
-# keep in mind
-# Sim01 = J = 100, lambda = 2, p = 0.5
-# Sim02 = J = 100, lambda = 2, p = 0.4
-# Sim03 = J = 100, lambda = 2, p = 0.3
-# Sim04 = J = 100, lambda = 1, p = 0.5
-# Sim05 = J = 100, lambda = 1, p = 0.4
-# Sim06 = J = 100, lambda = 1, p = 0.3
-# Sim07 = J = 100, lambda = 0.5, p = 0.5
-# Sim08 = J = 100, lambda = 0.5, p = 0.4
-# Sim09 = J = 100, lambda = 0.5, p = 0.3
-glimpse(nmix.sim.wide)
-
-#- lambda
-nmix.sim.plot.lambda <- ggplot(data = nmix.sim.wide[nmix.sim.wide$param=="lambda",]) +
-  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
-  theme(panel.grid = element_blank())+
-  geom_point(aes(x = Run, y = mean*100), size=2) +
-  geom_hline(yintercept = c(200, 100, 50), col="grey") +
-  geom_linerange(aes(x = Run, y = mean*100, ymin=CI_2.5*100, ymax= CI_97.5*100)) +
-  theme(axis.text.x = element_blank()) +
-  xlab("Simulation Runs") +
-  ylab("Total Estimated Abundance (i.e., lambda * 100)")+
-  ggtitle("Simulations of n-mixture models with 100 sampling occasions,\nlambda=c(2,1,0.5), and p=c(0.5,0.4,0.3)")+
-  facet_wrap(~ Sim)
-
-Cairo(file="out/nmix.sim.plot.lambda.PNG",
-      type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
-      bg="white",
-      dpi=300)
-nmix.sim.plot.lambda
-dev.off()
-
-#- p
-nmix.sim.plot.p <- ggplot(data = nmix.sim.wide[nmix.sim.wide$param=="p",]) +
-  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
-  theme(panel.grid = element_blank())+
-  geom_point(aes(x = Run, y = mean), size=2) +
-  geom_hline(yintercept = c(0.5, 0.4, 0.3), col="grey") +
-  geom_linerange(aes(x = Run, y = mean, ymin=CI_2.5, ymax= CI_97.5)) +
-  theme(axis.text.x = element_blank()) +
-  xlab("Simulation Runs") +
-  ylab("Estimated Probabilty of Detection")+
-  ggtitle("Simulations of n-mixture models with 100 sampling occasions,\nlambda=c(2,1,0.5), and p=c(0.5,0.4,0.3)")+
-  facet_wrap(~ Sim)
-
-Cairo(file="out/nmix.sim.plot.p.PNG",
-      type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
-      bg="white",
-      dpi=300)
-nmix.sim.plot.p
-dev.off()
-
-
-nmix.sim.df[1:25,] 
-mean.lambda <- 0.9385
-M*mean.lambda # estimated N
-sum(N) # compared to true N
 
 #####################################################################################
 ##################------ CURRENT DATA ------##################
