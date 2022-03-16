@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and limitations under the License.
 
 #####################################################################################
-# 03_analysis.R
+# 03_analysis_abundance.R
 # script to run SCR models fit to live trap (2000) and hair snag (2020) data
 # written by Joanna Burgar (Joanna.Burgar@gov.bc.ca) - 13-Oct-2021
 #####################################################################################
@@ -105,130 +105,130 @@ if(!exists('outputDirectory')) {
 #
 #---(end AHMnimble header)---
 
-#####################################################################################
-# Specify model in BUGS language
-# This corresponds to "model2.txt" in original AHM code.
-# without effort
-Section6p3_code <- nimbleCode( {
-  # Priors
-  # lambda ~ dgamma(0.001, 0.001) # came with generic code
-  lambda ~ dunif(0,100) # for an uninformative prior
-  p ~ dunif(0, 1)
-  # Likelihood
-  for (i in 1:M) {
-    N[i] ~ dpois(lambda)      # State model
-    for (j in 1:J) {
-      C[i,j] ~ dbin(p, N[i]) # Observation model
-    }
-  }
-})
-
-
-# MCMC settings
-ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
-
-# Parameters monitored
-params_noeffort <- c("lambda", "p")
-
-# Bundle data without effort
-
-# list(y_week, y_day, week.effort, weeks.to.use, daylookup)
-retro_weekly_noeffort <- vector("list", length(retro.data.out))
-for(i in 1:length(retro.data.out)){
-  y_week <- retro.data.out[[i]][[1]]
-  # y_week <- as.matrix(y_week)
-  ndata <- list(C = y_week, M = nrow(y_week), J = ncol(y_week))
-  str(ndata)
-  
-  # Specify initial values
-  Nst <- apply(y_week, 1, max)       # Avoid data/model/inits conflict
-  inits <- function(){list(N = Nst)}
-  
-  out <- nimbleMCMC(code = Section6p3_code, 
-                    constants = ndata, 
-                    inits = inits,
-                    monitors = params_noeffort,
-                    nburnin = nb, 
-                    niter = ni,
-                    nchains = nc,
-                    samplesAsCodaMCMC = TRUE)
-  retro_weekly_noeffort[[i]] <- out
-  
-}
-
-save(retro_weekly_noeffort, file = paste0("./out/retro_weekly_noeffort_mcmcoutput.Rda"))
-# load("out/retro_weekly_noeffort_mcmcoutput.Rda")
-
-out96 <- MCMCsummary(retro_weekly_noeffort[[1]])
-out97 <- MCMCsummary(retro_weekly_noeffort[[2]])
-out98 <- MCMCsummary(retro_weekly_noeffort[[3]])
-out99 <- MCMCsummary(retro_weekly_noeffort[[4]])
-
-(retro.data.out[[4]][1])
-retro.out <- rbind(out96, out97, out98, out99)
-retro.out$Year <- rep(c("1996/97","1997/98","1998/99","1999/20"), each=2, times=1)
-retro.out$param <- rep(c("lambda","p"), each=1, times=4)
-retro.out # n.eff low and Gelman high fo 1999/00 = did not converge and should remove from output
-
-#- lambda
-nmix.retro.plot.lambda <- ggplot(data = retro.out[retro.out$param=="lambda" & retro.out$Year!="1999/20",]) +
-  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
-  theme(panel.grid = element_blank())+
-  geom_point(aes(x = Year, y = mean*100), size=2) +
-  geom_linerange(aes(x = Year, y = mean*100, ymin=`2.5%`*100, ymax= `97.5%`*100)) +
-  xlab("Year") +
-  ylab("Total Estimated Abundance (i.e., lambda * 100)")+
-  ggtitle("Williston Basin marten abundance estimates;\nlive trap data fit to n-mixture models")
-
-Cairo(file="out/nmix.retro.plot.lambda.PNG",
-      type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
-      bg="white",
-      dpi=300)
-nmix.retro.plot.lambda
-dev.off()
-
-#- p
-nmix.retro.plot.pall <- ggplot(data = retro.out[retro.out$param=="p",]) +
-  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
-  theme(panel.grid = element_blank())+
-  geom_point(aes(x = Year, y = mean), size=2) +
-  geom_linerange(aes(x = Year, y = mean, ymin=`2.5%`, ymax= `97.5%`)) +
-  xlab("Year") +
-  ylab("Probabilty of Detection")+
-  ggtitle("Williston Basin marten detection probabilities;\nlive trap data fit to n-mixture models")
-
-Cairo(file="out/nmix.retro.plot.pall.PNG",
-      type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
-      bg="white",
-      dpi=300)
-nmix.retro.plot.pall 
-dev.off()
-
-# excluding 1999/2000
-nmix.retro.plot.p <- ggplot(data = retro.out[retro.out$param=="p" & retro.out$Year!="1999/20",]) +
-  theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
-  theme(panel.grid = element_blank())+
-  geom_point(aes(x = Year, y = mean), size=2) +
-  geom_linerange(aes(x = Year, y = mean, ymin=`2.5%`, ymax= `97.5%`)) +
-  xlab("Year") +
-  ylab("Probabilty of Detection")+
-  ggtitle("Williston Basin marten detection probabilities;\nlive trap data fit to n-mixture models")
-
-Cairo(file="out/nmix.retro.plot.p.PNG",
-      type="png",
-      width=3000,
-      height=2200,
-      pointsize=15,
-      bg="white",
-      dpi=300)
-nmix.retro.plot.p 
-dev.off()
+# #####################################################################################
+# # Specify model in BUGS language
+# # This corresponds to "model2.txt" in original AHM code.
+# # without effort
+# Section6p3_code <- nimbleCode( {
+#   # Priors
+#   # lambda ~ dgamma(0.001, 0.001) # came with generic code
+#   lambda ~ dunif(0,100) # for an uninformative prior
+#   p ~ dunif(0, 1)
+#   # Likelihood
+#   for (i in 1:M) {
+#     N[i] ~ dpois(lambda)      # State model
+#     for (j in 1:J) {
+#       C[i,j] ~ dbin(p, N[i]) # Observation model
+#     }
+#   }
+# })
+# 
+# 
+# # MCMC settings
+# ni <- 25000   ;   nt <- 20   ;   nb <- 5000   ;   nc <- 3
+# 
+# # Parameters monitored
+# params_noeffort <- c("lambda", "p")
+# 
+# # Bundle data without effort
+# 
+# # list(y_week, y_day, week.effort, weeks.to.use, daylookup)
+# retro_weekly_noeffort <- vector("list", length(retro.data.out))
+# for(i in 1:length(retro.data.out)){
+#   y_week <- retro.data.out[[i]][[1]]
+#   # y_week <- as.matrix(y_week)
+#   ndata <- list(C = y_week, M = nrow(y_week), J = ncol(y_week))
+#   str(ndata)
+#   
+#   # Specify initial values
+#   Nst <- apply(y_week, 1, max)       # Avoid data/model/inits conflict
+#   inits <- function(){list(N = Nst)}
+#   
+#   out <- nimbleMCMC(code = Section6p3_code, 
+#                     constants = ndata, 
+#                     inits = inits,
+#                     monitors = params_noeffort,
+#                     nburnin = nb, 
+#                     niter = ni,
+#                     nchains = nc,
+#                     samplesAsCodaMCMC = TRUE)
+#   retro_weekly_noeffort[[i]] <- out
+#   
+# }
+# 
+# save(retro_weekly_noeffort, file = paste0("./out/retro_weekly_noeffort_mcmcoutput.Rda"))
+# # load("out/retro_weekly_noeffort_mcmcoutput.Rda")
+# 
+# out96 <- MCMCsummary(retro_weekly_noeffort[[1]])
+# out97 <- MCMCsummary(retro_weekly_noeffort[[2]])
+# out98 <- MCMCsummary(retro_weekly_noeffort[[3]])
+# out99 <- MCMCsummary(retro_weekly_noeffort[[4]])
+# 
+# (retro.data.out[[4]][1])
+# retro.out <- rbind(out96, out97, out98, out99)
+# retro.out$Year <- rep(c("1996/97","1997/98","1998/99","1999/20"), each=2, times=1)
+# retro.out$param <- rep(c("lambda","p"), each=1, times=4)
+# retro.out # n.eff low and Gelman high fo 1999/00 = did not converge and should remove from output
+# 
+# #- lambda
+# nmix.retro.plot.lambda <- ggplot(data = retro.out[retro.out$param=="lambda" & retro.out$Year!="1999/20",]) +
+#   theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+#   theme(panel.grid = element_blank())+
+#   geom_point(aes(x = Year, y = mean*100), size=2) +
+#   geom_linerange(aes(x = Year, y = mean*100, ymin=`2.5%`*100, ymax= `97.5%`*100)) +
+#   xlab("Year") +
+#   ylab("Total Estimated Abundance (i.e., lambda * 100)")+
+#   ggtitle("Williston Basin marten abundance estimates;\nlive trap data fit to n-mixture models")
+# 
+# Cairo(file="out/nmix.retro.plot.lambda.PNG",
+#       type="png",
+#       width=3000,
+#       height=2200,
+#       pointsize=15,
+#       bg="white",
+#       dpi=300)
+# nmix.retro.plot.lambda
+# dev.off()
+# 
+# #- p
+# nmix.retro.plot.pall <- ggplot(data = retro.out[retro.out$param=="p",]) +
+#   theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+#   theme(panel.grid = element_blank())+
+#   geom_point(aes(x = Year, y = mean), size=2) +
+#   geom_linerange(aes(x = Year, y = mean, ymin=`2.5%`, ymax= `97.5%`)) +
+#   xlab("Year") +
+#   ylab("Probabilty of Detection")+
+#   ggtitle("Williston Basin marten detection probabilities;\nlive trap data fit to n-mixture models")
+# 
+# Cairo(file="out/nmix.retro.plot.pall.PNG",
+#       type="png",
+#       width=3000,
+#       height=2200,
+#       pointsize=15,
+#       bg="white",
+#       dpi=300)
+# nmix.retro.plot.pall 
+# dev.off()
+# 
+# # excluding 1999/2000
+# nmix.retro.plot.p <- ggplot(data = retro.out[retro.out$param=="p" & retro.out$Year!="1999/20",]) +
+#   theme_bw() + theme(strip.background = element_rect(fill = "white", colour = "white")) +
+#   theme(panel.grid = element_blank())+
+#   geom_point(aes(x = Year, y = mean), size=2) +
+#   geom_linerange(aes(x = Year, y = mean, ymin=`2.5%`, ymax= `97.5%`)) +
+#   xlab("Year") +
+#   ylab("Probabilty of Detection")+
+#   ggtitle("Williston Basin marten detection probabilities;\nlive trap data fit to n-mixture models")
+# 
+# Cairo(file="out/nmix.retro.plot.p.PNG",
+#       type="png",
+#       width=3000,
+#       height=2200,
+#       pointsize=15,
+#       bg="white",
+#       dpi=300)
+# nmix.retro.plot.p 
+# dev.off()
 
 
 #####################################################################################
@@ -286,11 +286,11 @@ dim(y_all)
 sum(y_all)
 
 # create year covariate
-year <- array(0, dim=c(max(M),K))
-dim(year)
-year[,1] <- c(rep(1,M[1]),rep(NA,max(M)-M[1]))
-year[,2] <- c(rep(2,M[2]),rep(NA,max(M)-M[2]))
-year[,3] <- c(rep(3,M[3]),rep(NA,max(M)-M[3]))
+# year <- array(0, dim=c(max(M),K))
+# dim(year)
+# year[,1] <- c(rep(1,M[1]),rep(NA,max(M)-M[1]))
+# year[,2] <- c(rep(2,M[2]),rep(NA,max(M)-M[2]))
+# year[,3] <- c(rep(3,M[3]),rep(NA,max(M)-M[3]))
 
 # create effort covariate
 effort_9697 <- as.matrix(retro.data.out[[1]]$effort.21days)
@@ -356,7 +356,7 @@ save(out, file = paste0("out/nmix_21day_969719_effort_mcmcoutput.RData"))
 # save(out, file = paste0("out/nmix_21day_9719_effort_mcmcoutput.RData"))
 # load("out/nmix_21day_969719_effort_mcmcoutput.RData")
 
-chainsPlot(out) # traceplots saved - dp is horrid!
+chainsPlot(out) # traceplots saved - dp is better!
 
 str(out)
 head(out)
@@ -428,7 +428,7 @@ dev.off()
 # Calculate ESS effective sample size
 # adjusted sample size = effective sample size
 # if a "long" Markov chain has only generated a short effective sample size, consider a longer run
-apply(samples, 2, effectiveSize)
+# apply(posterior, 2, effectiveSize)
 
 
 #####################################################################################
