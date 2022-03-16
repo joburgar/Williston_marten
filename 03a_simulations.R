@@ -150,11 +150,11 @@ nmix.sim.data.function <- function(ydata=ydata,effdata=effdata,lambda=lambda, p=
 # p <- 0.02                    # Probability of detection (per individual)
 nmix.sim.data.96 <- nmix.sim.data.function(ydata=retro.data.out[[1]]$y_21day,
                                            effdata=retro.data.out[[1]]$effort.21days,
-                                           lambda=3, p=0.3)
+                                           lambda=3, p=0.1)
 
 nmix.sim.data.97 <- nmix.sim.data.function(ydata=retro.data.out[[2]]$y_21day,
                                            effdata=retro.data.out[[2]]$effort.21days,
-                                           lambda=2.5, p=0.2)
+                                           lambda=2.5, p=0.1)
 
 nmix.sim.data.19 <- nmix.sim.data.function(ydata=rec.data.out$rec_ydata,
                                            effdata=rec.data.out$rec_effort,
@@ -320,7 +320,7 @@ nmix.sim.wide.alpha$param <- as.character(rep(c("1996-1997","1997-1998","2019-20
 Pgmean <- nmix.sim.wide.alpha %>%
   group_by(param) %>%
   summarise(Pg = mean(CI_50))
-Pgmean$Pg <- c(0.3, 0.2, 0.1)
+Pgmean$Pg <- c(0.1, 0.1, 0.1)
 
 
 nmix.sim.plot.dp <- ggplot(data = nmix.sim.wide.alpha) +
