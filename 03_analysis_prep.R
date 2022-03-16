@@ -93,292 +93,31 @@ retrieve_gdb_shp_aoi <- function (dsn=dsn, layer=layer){
 
 
 #####################################################################################
-############################--- RETROSPECTIVE DATA ---##########################
-# load data if not running concurrently (use run_all.R to source)
-# load("out/MartenData_1996.RData")
-# nm.area <- diff(marten.data$xlim)*diff(marten.data$ylim)/100	# Density reported per 100 sq km
-# nm.area # 51.21623 100 km2 or 5122 km2 total area (is this true?)
-
-load("out/retro_traps_grp.RData")
-str(traps.grid)
+####################################################################################
+###--- grab covariate data based on grid layout for each survey and also area of interest for 1997 and current
 
 out.files <- list.files("./out/", pattern="*.RData")
 out.files <- out.files[grepl("MartenData", out.files)]
 out.files <- out.files[!grepl("2020", out.files)]
 
-# retro.data.out <- vector('list', length(out.files))
-# str(retro.data.out)
+retro.traps.out <- list()
 
-# new grouping of traps to keep consistent grid cells with recent grid cell
-trap_grp <- list(retro_96, retro_97)
-
-retro.data.out <- list()
-
-for(r in 1:length(trap_grp)){
+for(r in 1:length(out.files)){
   load(paste0("./out/",out.files[r]))
-  marten.data$observations
-  marten.data$trap.oper
-  trap.oper <- marten.data$trap.oper
-  traps.open <- rowSums(trap.oper)
-  traps.open[order(traps.open)]
-  
-  # add week, and 21 day, and respective occasions to the daylookup
-  daylookup <- marten.data$daylookup
-  glimpse(daylookup)
-  daylookup$Week <- week(daylookup$Date)
-  num.weeks <- round(nrow(daylookup)/7+1)
-  week.occ <- rep(1:num.weeks, each = 7)
-  daylookup$Occ_week <- week.occ[1:nrow(daylookup)]
-  num.21days <- round(nrow(daylookup)/21+1)
-  days21.occ <- rep(1:num.21days, each = 21)
-  length(days21.occ)
-  daylookup$Occ_21day <- days21.occ[1:nrow(daylookup)]
-
-  # create a covariate and dataset for weekly occasions
-  # covariate is number of days trap open per week (0-7)
-  
-  # make sure to only use full weeks in occasion week (i.e., remove last week if not containing 7 days)
-  weeks.to.use <- daylookup %>% count(Occ_week)
-  weeks.to.use <- weeks.to.use[weeks.to.use$n==7,]$Occ_week
-  
-  days21.to.use <- daylookup %>% count(Occ_21day)
-  days21.to.use <- days21.to.use[days21.to.use$n==21,]$Occ_21day
-  
-  # observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
-  
-  # first need to group traps
   traps <- marten.data$traps*1000
   traps.sf <- st_as_sf(traps, coords=c("x","y"), crs=26910)
-  # grid_output <- find_grid(input=traps.sf, cellsize=3000) # being a hexagon, this should work out to 7.8 km2 with a 3 km diameter
-  # traps.grouped <- grid_output$aoi_utm %>% st_drop_geometry()
-  # num.trp.grps <- length(unique(traps.grouped$Trap_Grp))
-  # traps.grouped$TrapNum <- rownames(traps.grouped)
-  traps.grouped <- trap_grp[[r]]
-  colnames(traps.grouped)[2] <- "Trap_Grp"
-  num.trp.grps <- length(unique(traps.grouped$Trap_Grp))
-  traps.sf$grid_id <- traps.grouped$Trap_Grp
-  
-  # now back to effort and observations
-  week.effort <- as.data.frame(array(NA, dim=c(num.trp.grps, length(weeks.to.use))))
-  colnames(week.effort) <- weeks.to.use
-  rownames(week.effort) <- rownames(unique(traps.grouped$Trap_Grp))
-  
-  # create trap.oper based on trap groups
-  tg_trap.oper <- as.data.frame(trap.oper)
-  tg_trap.oper$Trap_Grp <- traps.grouped$Trap_Grp[match(rownames(tg_trap.oper),traps.grouped$TrapNum)]
-  tg_trap.oper <- as.data.frame(tg_trap.oper %>% group_by(Trap_Grp) %>% summarise(across(everything(), sum)))
-  rownames(tg_trap.oper) <- tg_trap.oper[,1]
-  tg_trap.oper <- as.matrix(tg_trap.oper[2:ncol(tg_trap.oper)])
-  dim(tg_trap.oper)
-  
-  eff.col <- 1
-  for(i in 1:length(week.effort)){
-    # i=8
-    tmp1 <- as.data.frame(t(tg_trap.oper))
-    tmp1$Occ_week <- daylookup$Occ_week[match(rownames(tmp1), as.character(daylookup$Date))]
-    tmp1 <- tmp1 %>% filter(Occ_week %in% weeks.to.use)
-    tmp1 %>% count(Occ_week)
-    tmp2 <- tmp1 %>% filter(Occ_week==i) %>% colSums()
-    
-    week.effort[,eff.col] <- tmp2[1:nrow(tg_trap.oper)]
-    
-    eff.col <- eff.col + 1
-  }
-  
-  # trying to find equal 21 day periods for effort - omit the last few days/weeks not in a 21 day period
-  tmp <- floor(length(week.effort)/3)
-  tmp2 <- floor(tmp*3/3)
-  tmp3 <- tmp2*3
-  week.effort.trunc <- week.effort[1:tmp3]
-  effort.21days <- sapply(seq(1,tmp3,by=3),function(i) rowSums(week.effort.trunc[,i:(i+2)]))
-  
-  tot.week.effort <- rowSums(week.effort) # total effort per trap 
-  tot.21day.effort <- rowSums(effort.21days) # total effort per trap 
-  
-  # tot.week.effort == tot.21day.effort # not always true, must be due to removing the last few weeks
-  
-  # have a covariate (obs.cov) of trap effort per week
-  # bin occasions from day to week to emulate Poisson data for nmix and better work in occupancy
-  
-  # nmix.create.y.obs.cov <- function(num.days = num.days){
-  # i=1
-  traps.open <- rowSums(trap.oper)
-  # observations %>% filter(TrapNumber %in% tmp2) 
-  
-  # need to find the observation data that corresponds to those dates
-  # add in the 1 when a marten was in a trap and a 0 if trap open but not in trap
-  # create a matrix appending rows as the loop cycles...not sure about this bit
-  
- 
-  observations <- marten.data$observations
-  observations$Trap_Grp <- traps.grouped$Trap_Grp[match(observations$TrapNumber, traps.grouped$TrapNum)]
-  observations$Count <- 1
-  observations <- observations %>% group_by(Trap_Grp, Date_obs) %>% summarise(Count = sum(Count))
-  
-  observations <- observations %>% arrange(Trap_Grp, Date_obs)
-  obs.wide <- pivot_wider(observations, names_from = Trap_Grp, values_from = Count, values_fill = 0)
-  obs.wide <- obs.wide %>%  arrange(Date_obs) %>% rename(Date="Date_obs")
-  dim(obs.wide) # 
-  duplicated(obs.wide$Date) # all should be false
-  
-  # need to add in dates and sites
-  # add in dates, transpose to add in sites and then transpose back to become the y matrix
-  
-  # create y for all sites and all occasions 
-  # y = R (number of sites/traps) x J (number of sampling periods) with y as repeated counts
-  y_all <- left_join(daylookup, obs.wide)
-  y_all[is.na(y_all)] <- 0
-  y_allT <- as.data.frame(t(y_all %>% dplyr::select(-c(YDay, Date, Occ, Week, Occ_week, Occ_21day))))
-  dim(y_allT)
-  
-  y_allT$Trap_Grp <- colnames(obs.wide[2:ncol(obs.wide)])
-  
-  tmp1 <- as.data.frame(array(NA, dim=c(num.trp.grps, 0)))
-  tmp1$Trap_Grp <- rownames(tmp1)
-  tmp2 <- left_join(tmp1, y_allT)
-  y_day <- as.matrix(tmp2[,2:ncol(tmp2)])
-  colnames(y_day) <- seq_len(ncol(trap.oper))
-  rownames(y_day) <- seq_len(num.trp.grps)
-  y_day[is.na(y_day)] <- 0
-  
-  # create y for all sites, weekly, 21 day occasions 
-  tmp3 <- as.data.frame(t(y_day))
-  tmp3$Occ_week <- daylookup$Occ_week[match(rownames(tmp3), daylookup$Occ)]
-  y_week <- tmp3 %>% group_by(Occ_week) %>% summarise_at(1:num.trp.grps, sum)
-  y_week <- as.matrix(t(y_week %>% dplyr::select(-Occ_week)))
-  y_week <- y_week[,1:length(weeks.to.use)]
-  
-  tmp3$Occ_21day <- daylookup$Occ_21day[match(rownames(tmp3), daylookup$Occ)]
-  y_21day <- tmp3 %>% group_by(Occ_21day) %>% summarise_at(1:num.trp.grps, sum)
-  y_21day <- as.matrix(t(y_21day %>% dplyr::select(-Occ_21day)))
-  y_21day <- y_21day[,1:length(days21.to.use)]
   
   
-  sum(y_21day)# 234 observations
-  sum(y_week) # 273 observations
-  sum(y_day)  # 273 observations 
-  # omitted 3 days from the week occasion because last week not a full week
-  
-  sum(y_week) == sum(y_day) # same number of observations in weekly and full dataset
-  # may not be the same because of omitted days
-  
-  retro.data.out[[r]] <- list(y_week=y_week, y_day=y_day, y_21day=y_21day, week.effort=week.effort, weeks.to.use=weeks.to.use, 
-                              daylookup=daylookup, effort.21days=effort.21days, days21.to.use=days21.to.use,traps.sf=traps.sf)
-  
+  retro.traps.out[[r]] <- list(traps.sf=traps.sf)
 }
 
-save(retro.data.out, file = paste0("./out/retro.data.out9697.RData"))
 
-# Look at detections per week and per trap
-# glimpse(retro.data.out[[1]])
-# rowSums(retro.data.out[[1]]$y_week);colSums(retro.data.out[[1]]$y_week)
-# rowSums(retro.data.out[[1]]$y_day);colSums(retro.data.out[[1]]$y_day)
-# rowSums(retro.data.out[[2]][[1]]);colSums(retro.data.out[[2]][[1]])
-# rowSums(retro.data.out[[3]][[1]]);colSums(retro.data.out[[3]][[1]])
-# rowSums(retro.data.out[[4]][[1]]);colSums(retro.data.out[[4]][[1]])
+load("out/recent_occ_data.RData")
+recent_traps.sf <- st_as_sf(recent_occ_data[[2]], coords=c("Easting","Northing"), crs=26910)
 
-retro_year <- c("1996", "1997", "1998", "1999")
-for(i in 1:4){
-Cairo(file=paste0("out/weekly_det_",retro_year[i],".PNG"),type="png",width=2000,height=2000,pointsize=15,bg="white",dpi=300)
-plot(colSums(retro.data.out[[i]]$y_week), ylab="Weeky marten capture count", xlab="Week", 
-     main=paste0("Live Capture Data - ",retro_year[i],"/",as.numeric(retro_year[i])-1899))
-dev.off()
-}
-
-# 1999/00 detections high for first 3 weeks and then drop off - unlikely for models to converge
-# different sampling effort in 1999/00 - concentrating only on fisher and moving traps to target recapturing fisher
-# 1998/99 might also be worth ignoring as trapping effort became much more focused on fisher
-
-#####################################################################################
-############################--- RETROSPECTIVE DATA ---##########################
-# load data if not running concurrently (use run_all.R to source)
-# load("out/retro.data.out.RData")
-# load("out/recent_occ_data.RData")
-###--- DECISION 2022-Mar-03 go with grid cells for recent data as naming convention is fisher row/column
-###--- UPDATE - 2022-Mar-04 changed mind to go with hexagons, same as retro data for comparison and to consider marten (not fisher) home range size
-
-hsdat <- recent_occ_data[[1]]
-traps.df <- recent_occ_data[[2]]
-
-ltraps.sf <- st_as_sf(traps.df, coords=c("Easting","Northing"), crs=26910)
-ggplot()+
-  geom_sf(data=ltraps.sf, aes(fill=Grid_Focus, col=Grid_Focus))
-
-ggplot()+
-  geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
-
-rec_grid_output <- find_grid(input=ltraps.sf, cellsize = 3000)
-
-ggplot()+
-  geom_sf(data=rec_grid_output$fishnet_grid_sf)+
-  geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
-  
-ltraps.sf <- st_join(ltraps.sf, rec_grid_output$fishnet_grid_sf %>% dplyr::select(grid_id), left=TRUE, largest=TRUE)
-ggplot()+
-  geom_sf(data=ltraps.sf, aes(fill=grid_id, col=grid_id))
-
-hsdat$grid_id <- ltraps.sf$grid_id[match(hsdat$`Sample Station Label`, ltraps.sf$Station)]
-hsdat %>% count(`Sampling Session`)
-hsdat.mart <- hsdat
-hsdat.mart$Occ <- as.factor(str_sub(hsdat.mart$`Sampling Session`,-1))
-hsdat.mart <- hsdat.mart %>% dplyr::select(-`Study Area Name`, -Species, -`Sampling Session`) %>% rename("Station"=1, "Animal_ID"=3)
-hsdat.mart$Date <- ymd(hsdat.mart$Date)
-# if going with fisher sized grids for grid cells (36 km2) use the code below, otherwise scripted for hexagon sized grid cells
-# hsdat.mart$Grid_Cell <- traps.df$Grid_Cell[match(hsdat.mart$Station, traps.df$Station)]
-# hsdat.mart$Grid <- traps.df$Grid[match(hsdat.mart$Station, traps.df$Station)]
-# as.data.frame(hsdat.mart %>% arrange(Grid_Cell, Station))
-# as.data.frame(hsdat.mart %>% group_by(Grid_Cell, Station) %>% count(Occ))
-as.data.frame(hsdat.mart %>% group_by(grid_id) %>% count(Occ))
-count(hsdat.mart, Station) # 44 stations with detections
-count(hsdat.mart, grid_id) #32 marten and fisher focused grid cells with detections (occassions grouped)
-
-hsdat.mart %>% arrange(grid_id) %>% count(grid_id, Occ)
-hsdat.mart <- hsdat.mart %>% arrange(grid_id, Date, Occ)
-hsdat.mart$Count <- 1
-observations <- hsdat.mart %>% group_by(Station, Occ) %>% summarise(Count=sum(Count))
-obs.wide <- pivot_wider(observations, names_from = Occ, values_from = Count, values_fill = 0)
-obs.wide <- obs.wide %>%  arrange(Station)
-duplicated(obs.wide$Station) # all should be false
-
-traps.obs <- left_join(ltraps.sf %>% dplyr::select(Station, grid_id) %>% st_drop_geometry(), obs.wide)
-traps.obs[is.na(traps.obs)] <- 0
-colnames(traps.obs)[3:6] <- c("Occ3","Occ2","Occ4","Occ1") 
-
-rec_ydata <- traps.obs %>% dplyr::select(-Station) %>% group_by(grid_id) %>% summarise_at(vars("Occ3":"Occ1"), sum, na.rm=TRUE)
-rec_ydata <- as.data.frame(rec_ydata)
-row.names(rec_ydata) <- rec_ydata$grid_id
-rec_ydata <- rec_ydata %>% dplyr::select(-grid_id)
-rec_ydata <- rec_ydata[c("Occ1","Occ2","Occ3","Occ4")]
-rec_ydata <- as.matrix(rec_ydata)
-dim(rec_ydata)
-
-traps.obs$effCount <- 1
-rec_effort <- as.data.frame(traps.obs %>% group_by(grid_id) %>% dplyr::count(effCount) %>% dplyr::select(-effCount))
-rec_effort$Occ4 <- rec_effort$Occ3 <- rec_effort$Occ2 <- rec_effort$Occ1 <- rec_effort$n
-row.names(rec_effort) <- rec_effort$grid_id
-rec_effort$n <- rec_effort$grid_id <- NULL
-rec_effort <- as.matrix(rec_effort)
-
-grid_centroid_utm <- st_coordinates(st_centroid(rec_grid_output$fishnet_grid_sf))
-
-###--- SINCE GROUPING COV DATA WITH HEXAGONS, NEED TO GROUP OBS DATA WITH HEX TOO ---###
-
-rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
-save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
-# load("out/rec.data.out.RData")
-# load("out/retro.data.out.RData")
-
-####################################################################################
-###--- grab covariate data based on grid layout for each survey and also area of interest for 1997 and current
-ggplot()+
-  geom_sf(data=rec.data.out$rec_grid_output$fishnet_grid_sf)+
-  geom_sf(data=retro.data.out[[1]]$grid_output$aoi_utm, col="black")+
-  geom_sf(data=retro.data.out[[1]]$grid_output$aoi_utm, col="red")+
-  geom_sf(data=rec.data.out$rec_grid_output$aoi_utm, col="blue")
-
-all.traps <- rbind(retro.data.out[[1]]$grid_output$aoi_utm %>% select(geometry),
-      retro.data.out[[2]]$grid_output$aoi_utm %>% select(geometry),
-      rec.data.out$rec_grid_output$aoi_utm %>% select(geometry))
+all.traps <- rbind(retro.traps.out[[1]]$traps.sf %>% select(geometry),
+                   retro.traps.out[[2]]$traps.sf %>% select(geometry),
+                   recent_traps.sf %>% select(geometry))
 
 # now create a 5 km grid buffer following the angle of the actual trap locations
 aoi <- st_buffer(all.traps %>% st_transform(crs=26910), dist=5000)
@@ -387,20 +126,20 @@ aoi_grid <- aoi$fishnet_grid_sf
 
 ggplot()+
   geom_sf(data=aoi_grid)+
-  geom_sf(data=retro.data.out[[1]]$traps.sf, col="black")+
-  geom_sf(data=retro.data.out[[2]]$traps.sf, col="red")+
-  geom_sf(data=rec.data.out$rec_grid_output$aoi_utm, col="blue")
+  geom_sf(data=retro.traps.out[[1]]$traps.sf, col="black")+
+  geom_sf(data=retro.traps.out[[2]]$traps.sf, col="red")+
+  geom_sf(data=recent_traps.sf, col="blue")
 
-retro_96 <- st_join(retro.data.out[[1]]$grid_output$aoi_utm, aoi_grid) %>% 
-  dplyr::select(TrapNum, grid_id) %>%
+retro_96 <- st_join(retro.traps.out[[1]]$traps.sf, aoi_grid) %>% 
+  dplyr::select(grid_id) %>%
   st_drop_geometry()
 
-retro_97 <- st_join(retro.data.out[[2]]$grid_output$aoi_utm, aoi_grid) %>% 
-  dplyr::select(TrapNum, grid_id) %>%
+retro_97 <- st_join(retro.traps.out[[2]]$traps.sf, aoi_grid) %>% 
+  dplyr::select(grid_id) %>%
   st_drop_geometry()
 
-recent_19 <- st_join(rec.data.out$rec_grid_output$aoi_utm, aoi_grid) %>% 
-  dplyr::select(TrapNum, grid_id) %>%
+recent_19 <- st_join(recent_traps.sf, aoi_grid) %>% 
+  dplyr::select(grid_id) %>%
   st_drop_geometry()
 
 # Takes too long - clipped in ArcCatalog instead
@@ -411,6 +150,7 @@ recent_19 <- st_join(rec.data.out$rec_grid_output$aoi_utm, aoi_grid) %>%
 # save.image("03_analysis.prep.RData")
 ###--- create covariate dataframe to put covariate info
 aoi_grid_id <- aoi_grid$grid_id
+# save(aoi_grid, file = paste0("./out/aoi_grid.RData"))
 
 cov.df <- as.data.frame(array(seq_len(length(aoi_grid_id)),c(nrow(aoi_grid),1))) # for all cov data
 colnames(cov.df) <- c("grid_id")
@@ -497,7 +237,6 @@ for(i in seq_len(nrow(cov.df))){
   cov.prop <- cov.length/tmp$Area_km2
   cov.df$RD_density96[i] <- cov.prop
 }
-
 
 aoi.DRA.19 <- aoi.DRA %>% filter(Year<2020)
 
@@ -604,7 +343,7 @@ for(i in seq_len(nrow(cov.df))){
 }
 
 aoi.VRIh$edge <- ifelse(aoi.VRIh$PROJ_HEIGHT_1<3, "EdgeL3",
-                       ifelse(aoi.VRIh$PROJ_HEIGHT_1>=3, "EdgeU3", NA))
+                        ifelse(aoi.VRIh$PROJ_HEIGHT_1>=3, "EdgeU3", NA))
 
 aoi.VRI.edge <-aoi.VRIh %>% filter(!is.na(edge)) %>% group_by(edge) %>%
   summarise(across(geometry, ~ st_union(.)), .groups = "keep") %>%
@@ -675,6 +414,7 @@ for(i in seq_len(nrow(cov.df))){
 ### NEED TO ADD in GRID ID for retro polygons - do a spatial join
 
 ################################################################################
+# write.csv(cov.df,"data/ALL.covdata.csv")
 cov.df <- read.csv("data/ALL.covdata.csv", row.names = 1)
 head(cov.df)
 cov.df$retro_96 <- cov.df$retro_97 <- cov.df$recent_19 <- NA
@@ -683,10 +423,17 @@ cov.df$retro_97 <- case_when(cov.df$grid_id %in% unique(retro_97$grid_id) ~ 1)
 cov.df$recent_19 <- case_when(cov.df$grid_id %in% unique(recent_19$grid_id) ~ 1)
 
 summary(cov.df)
+cov.df %>% filter(RLW_dist==0) %>% count(RLW_type)
+cov.df$use <- 1
+cov.df$use <- case_when(cov.df$RLW_dist==0 & cov.df$RLW_type!="Man-made waterbody" ~ 1,
+                        cov.df$RLW_dist==0 & cov.df$RLW_type=="Man-made waterbody" ~ 0,
+                        TRUE ~ as.numeric(cov.df$use))
+
 sum(cov.df$recent_19, na.rm=T)
 sum(cov.df$retro_96, na.rm=T)
 sum(cov.df$retro_97, na.rm=T)
 
+aoi_grid$use <- cov.df$use
 aoi_grid$recent_19 <- cov.df$recent_19
 aoi_grid$retro_96 <- cov.df$retro_96
 aoi_grid$retro_97 <- cov.df$retro_97
@@ -697,16 +444,264 @@ pal = pnw_palette(name="Cascades",n=3,type="discrete")
 
 Cairo(file="out/marten_YrsSurveyed_map_969719.PNG",type="png",width=3400,height=2400,pointsize=14,bg="white",dpi=300)
 ggplot()+
-  geom_sf(data=aoi_grid, fill=NA)+
-  geom_sf(data=aoi_grid %>% filter(Yrs_surveyed >0), aes(fill=as.factor(Yrs_surveyed)))+
+  geom_sf(data=aoi_grid %>% filter(use==1 | Yrs_surveyed>0), fill=NA)+
+  geom_sf(data=aoi_grid %>% filter(use==1 | Yrs_surveyed>0) %>% filter(Yrs_surveyed >0), aes(fill=as.factor(Yrs_surveyed)))+
   theme(legend.position="bottom")+
   theme(legend.title=element_blank())+
   scale_fill_manual(values=pal)
 dev.off()
 
-save(aoi_grid, file = paste0("./out/aoi_grid.RData"))
+grid_touse <- aoi_grid %>% filter(use==1 | Yrs_surveyed>0) %>% dplyr::select(grid_id) %>% st_drop_geometry()
+cov.df$grid_touse <- case_when(cov.df$grid_id %in% grid_touse$grid_id ~ 1)
+cov.df[is.na(cov.df)] <- 0
+summary(cov.df)
 
-write.csv(cov.df,"data/ALL.covdata.csv")
+write.csv(cov.df,"data/covdata.csv")
+save(aoi_grid, file=paste0("data/aoi_grid.RData"))
+
+
+############################--- RETROSPECTIVE DATA ---##########################
+# load data if not running concurrently (use run_all.R to source)
+
+out.files
+
+# new grouping of traps to keep consistent grid cells with recent grid cell
+trap_grp <- list(retro_96, retro_97)
+
+retro.data.out <- list()
+
+for(r in 1:length(trap_grp)){
+  load(paste0("./out/",out.files[r]))
+  # marten.data$observations
+  # marten.data$trap.oper
+  trap.oper <- marten.data$trap.oper
+  traps.open <- rowSums(trap.oper)
+  
+  # add week, and 21 day, and respective occasions to the daylookup
+  daylookup <- marten.data$daylookup
+  # glimpse(daylookup)
+  daylookup$Week <- week(daylookup$Date)
+  num.weeks <- round(nrow(daylookup)/7+1)
+  week.occ <- rep(1:num.weeks, each = 7)
+  daylookup$Occ_week <- week.occ[1:nrow(daylookup)]
+  num.21days <- round(nrow(daylookup)/21+1)
+  days21.occ <- rep(1:num.21days, each = 21)
+  daylookup$Occ_21day <- days21.occ[1:nrow(daylookup)]
+
+  # create a covariate and dataset for weekly occasions
+  # covariate is number of days trap open per week (0-7)
+  
+  # make sure to only use full weeks in occasion week (i.e., remove last week if not containing 7 days)
+  weeks.to.use <- daylookup %>% count(Occ_week)
+  weeks.to.use <- weeks.to.use[weeks.to.use$n==7,]$Occ_week
+  
+  days21.to.use <- daylookup %>% count(Occ_21day)
+  days21.to.use <- days21.to.use[days21.to.use$n==21,]$Occ_21day
+  
+  # observation covariates need to be in dim(M,J) where M = number of sites, J = number of sampling occasions
+  
+  # first need to group traps
+  traps <- marten.data$traps*1000
+  traps.sf <- st_as_sf(traps, coords=c("x","y"), crs=26910)
+  traps.grouped <- trap_grp[[r]]
+  colnames(traps.grouped)[1] <- "Trap_Grp"
+  traps.grouped$TrapNum <- rownames(traps.grouped)
+  num.trp.grps <- length(unique(traps.grouped$Trap_Grp))
+  traps.sf$grid_id <- traps.grouped$Trap_Grp
+  
+  # now back to effort and observations
+  week.effort <- as.data.frame(array(NA, dim=c(num.trp.grps, length(weeks.to.use))))
+  colnames(week.effort) <- c(weeks.to.use)
+  rownames(week.effort) <- unique(sort(traps.grouped$Trap_Grp))
+  
+  # create trap.oper based on trap groups
+  tg_trap.oper <- as.data.frame(trap.oper)
+  tg_trap.oper$Trap_Grp <- traps.grouped$Trap_Grp[match(rownames(tg_trap.oper),traps.grouped$TrapNum)]
+  tg_trap.oper <- as.data.frame(tg_trap.oper %>% group_by(Trap_Grp) %>% summarise(across(everything(), sum)))
+  rownames(tg_trap.oper) <- tg_trap.oper[,1]
+  tg_trap.oper <- as.matrix(tg_trap.oper[2:ncol(tg_trap.oper)])
+
+  eff.col <- 1
+  for(i in 1:length(week.effort)){
+    # i=8
+    tmp1 <- as.data.frame(t(tg_trap.oper))
+    tmp1$Occ_week <- daylookup$Occ_week[match(rownames(tmp1), as.character(daylookup$Date))]
+    tmp1 <- tmp1 %>% filter(Occ_week %in% weeks.to.use)
+    tmp1 %>% count(Occ_week)
+    tmp2 <- tmp1 %>% filter(Occ_week==i) %>% colSums()
+    
+    week.effort[,eff.col] <- tmp2[1:nrow(tg_trap.oper)]
+    
+    eff.col <- eff.col + 1
+  }
+  
+  # trying to find equal 21 day periods for effort - omit the last few days/weeks not in a 21 day period
+  tmp <- floor(length(week.effort)/3)
+  tmp2 <- floor(tmp*3/3)
+  tmp3 <- tmp2*3
+  week.effort.trunc <- week.effort[1:tmp3]
+  effort.21days <- sapply(seq(1,tmp3,by=3),function(i) rowSums(week.effort.trunc[,i:(i+2)]))
+  
+  tot.week.effort <- rowSums(week.effort) # total effort per trap 
+  tot.21day.effort <- rowSums(effort.21days) # total effort per trap 
+  
+  # tot.week.effort == tot.21day.effort # not always true, must be due to removing the last few weeks
+  
+  # have a covariate (obs.cov) of trap effort per week
+  # bin occasions from day to week to emulate Poisson data for nmix and better work in occupancy
+  
+  # nmix.create.y.obs.cov <- function(num.days = num.days){
+  # i=1
+  traps.open <- rowSums(trap.oper)
+  # observations %>% filter(TrapNumber %in% tmp2) 
+  
+  # need to find the observation data that corresponds to those dates
+  # add in the 1 when a marten was in a trap and a 0 if trap open but not in trap
+  # create a matrix appending rows as the loop cycles...not sure about this bit
+  
+ 
+  observations <- marten.data$observations
+  observations$Trap_Grp <- traps.grouped$Trap_Grp[match(observations$TrapNumber, traps.grouped$TrapNum)]
+  observations$Count <- 1
+  observations <- observations %>% group_by(Trap_Grp, Date_obs) %>% summarise(Count = sum(Count))
+  
+  observations <- observations %>% arrange(Trap_Grp, Date_obs)
+  obs.wide <- pivot_wider(observations, names_from = Trap_Grp, values_from = Count, values_fill = 0)
+  obs.wide <- obs.wide %>%  arrange(Date_obs) %>% rename(Date="Date_obs")
+  dim(obs.wide) # 
+  duplicated(obs.wide$Date) # all should be false
+  # need to add in dates and sites
+  # add in dates, transpose to add in sites and then transpose back to become the y matrix
+  
+  # create y for all sites and all occasions 
+  # y = R (number of sites/traps) x J (number of sampling periods) with y as repeated counts
+  y_all <- left_join(daylookup, obs.wide)
+  y_all[is.na(y_all)] <- 0
+  y_allT <- as.data.frame(t(y_all %>% dplyr::select(-c(YDay, Date, Occ, Week, Occ_week, Occ_21day))))
+  dim(y_allT); sum(y_allT[1:dim(y_all)[1]])
+  
+  y_allT$Trap_Grp <- colnames(obs.wide[2:ncol(obs.wide)])
+  
+  tmp1 <- as.data.frame(array(NA, dim=c(num.trp.grps, 0)))
+  tmp1$Trap_Grp <- as.character(unique(sort(traps.grouped$Trap_Grp)))
+  tmp2 <- left_join(tmp1, y_allT)
+  y_day <- tmp2[,2:dim(y_all)[1]]
+  rownames(y_day) <- tmp2$Trap_Grp
+  colnames(y_day) <- seq_len(ncol(y_day))
+  y_day[is.na(y_day)] <- 0
+  sum(y_day)
+  
+  # create y for all sites, weekly, 21 day occasions 
+  tmp3 <- as.data.frame(t(y_day))
+  rownames(tmp3) <- seq_len(dim(y_day)[2])
+  tmp3$Occ_week <- daylookup$Occ_week[match(rownames(tmp3), daylookup$Occ)]
+  y_week <- tmp3 %>% group_by(Occ_week) %>% summarise_at(1:num.trp.grps, sum)
+  y_week <- as.matrix(t(y_week %>% dplyr::select(-Occ_week)))
+  y_week <- y_week[,1:length(weeks.to.use)]
+  sum(y_week)
+  
+  tmp3$Occ_21day <- daylookup$Occ_21day[match(rownames(tmp3), daylookup$Occ)]
+  y_21day <- tmp3 %>% group_by(Occ_21day) %>% summarise_at(1:num.trp.grps, sum)
+  y_21day <- as.matrix(t(y_21day %>% dplyr::select(-Occ_21day)))
+  y_21day <- y_21day[,1:length(days21.to.use)]
+  sum(y_day)  # 273 observations 
+  
+  sum(y_week) == sum(y_day) # same number of observations in weekly and full dataset
+  # may not be the same because of omitted days
+  
+  retro.data.out[[r]] <- list(y_week=y_week, y_day=y_day, y_21day=y_21day, week.effort=week.effort, weeks.to.use=weeks.to.use, 
+                              daylookup=daylookup, effort.21days=effort.21days, days21.to.use=days21.to.use,traps.sf=traps.sf)
+  
+}
+
+save(retro.data.out, file = paste0("./out/retro.data.out9697.RData"))
+
+# Look at detections per week and per trap
+# rowSums(retro.data.out[[1]]$y_21day);colSums(retro.data.out[[1]]$y_21day)
+# rowSums(retro.data.out[[2]]$y_21day);colSums(retro.data.out[[1]]$y_21day)
+
+# retro_year <- c("1996", "1997", "1998", "1999")
+# for(i in 1:4){
+# Cairo(file=paste0("out/weekly_det_",retro_year[i],".PNG"),type="png",width=2000,height=2000,pointsize=15,bg="white",dpi=300)
+# plot(colSums(retro.data.out[[i]]$y_week), ylab="Weeky marten capture count", xlab="Week", 
+#      main=paste0("Live Capture Data - ",retro_year[i],"/",as.numeric(retro_year[i])-1899))
+# dev.off()
+# }
+
+# 1999/00 detections high for first 3 weeks and then drop off - unlikely for models to converge
+# different sampling effort in 1999/00 - concentrating only on fisher and moving traps to target recapturing fisher
+# 1998/99 might also be worth ignoring as trapping effort became much more focused on fisher
+
+#####################################################################################
+############################--- RETROSPECTIVE DATA ---##########################
+# load data if not running concurrently (use run_all.R to source)
+# load("out/retro.data.out.RData")
+# load("out/recent_occ_data.RData")
+###--- DECISION 2022-Mar-03 go with grid cells for recent data as naming convention is fisher row/column
+###--- UPDATE - 2022-Mar-04 changed mind to go with hexagons, same as retro data for comparison and to consider marten (not fisher) home range size
+
+hsdat <- recent_occ_data[[1]]
+traps.df <- recent_occ_data[[2]]
+
+ltraps.sf <- st_as_sf(traps.df, coords=c("Easting","Northing"), crs=26910)
+# ggplot()+
+#   geom_sf(data=ltraps.sf, aes(fill=Grid_Focus, col=Grid_Focus))
+# 
+# ggplot()+
+#   geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
+# 
+# ggplot()+
+#   geom_sf(data=aoi_grid)+
+#   geom_sf(data=ltraps.sf, aes(fill=Grid, col=Grid))
+  
+ltraps.sf <- st_join(ltraps.sf, aoi_grid %>% dplyr::select(grid_id), left=TRUE, largest=TRUE)
+ggplot()+
+  geom_sf(data=ltraps.sf, aes(fill=grid_id, col=grid_id))
+
+hsdat$grid_id <- ltraps.sf$grid_id[match(hsdat$`Sample Station Label`, ltraps.sf$Station)]
+hsdat %>% count(`Sampling Session`)
+hsdat.mart <- hsdat
+hsdat.mart$Occ <- as.factor(str_sub(hsdat.mart$`Sampling Session`,-1))
+hsdat.mart <- hsdat.mart %>% dplyr::select(-`Study Area Name`, -Species, -`Sampling Session`) %>% rename("Station"=1, "Animal_ID"=3)
+hsdat.mart$Date <- ymd(hsdat.mart$Date)
+as.data.frame(hsdat.mart %>% group_by(grid_id) %>% count(Occ))
+count(hsdat.mart, Station) # 44 stations with detections
+count(hsdat.mart, grid_id) #32 marten and fisher focused grid cells with detections (occassions grouped)
+
+hsdat.mart %>% arrange(grid_id) %>% count(grid_id, Occ)
+hsdat.mart <- hsdat.mart %>% arrange(grid_id, Date, Occ)
+hsdat.mart$Count <- 1
+observations <- hsdat.mart %>% group_by(Station, Occ) %>% summarise(Count=sum(Count))
+obs.wide <- pivot_wider(observations, names_from = Occ, values_from = Count, values_fill = 0)
+obs.wide <- obs.wide %>%  arrange(Station)
+duplicated(obs.wide$Station) # all should be false
+
+traps.obs <- left_join(ltraps.sf %>% dplyr::select(Station, grid_id) %>% st_drop_geometry(), obs.wide)
+traps.obs[is.na(traps.obs)] <- 0
+colnames(traps.obs)[3:6] <- c("Occ3","Occ2","Occ4","Occ1") 
+
+rec_ydata <- traps.obs %>% dplyr::select(-Station) %>% group_by(grid_id) %>% summarise_at(vars("Occ3":"Occ1"), sum, na.rm=TRUE)
+rec_ydata <- as.data.frame(rec_ydata)
+row.names(rec_ydata) <- rec_ydata$grid_id
+rec_ydata <- rec_ydata %>% dplyr::select(-grid_id)
+rec_ydata <- rec_ydata[c("Occ1","Occ2","Occ3","Occ4")]
+rec_ydata <- as.matrix(rec_ydata)
+dim(rec_ydata); sum(rec_ydata)
+
+traps.obs$effCount <- 1
+rec_effort <- as.data.frame(traps.obs %>% group_by(grid_id) %>% dplyr::count(effCount) %>% dplyr::select(-effCount))
+rec_effort$Occ4 <- rec_effort$Occ3 <- rec_effort$Occ2 <- rec_effort$Occ1 <- rec_effort$n
+row.names(rec_effort) <- rec_effort$grid_id
+rec_effort$n <- rec_effort$grid_id <- NULL
+rec_effort <- as.matrix(rec_effort)
+
+###--- SINCE GROUPING COV DATA WITH HEXAGONS, NEED TO GROUP OBS DATA WITH HEX TOO ---###
+rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata)
+save(rec.data.out, file = paste0("./out/rec.data.out.RData"))
+
+aoi_grid %>% count(recent_19, na.rm=T) %>% st_drop_geometry(); nrow(rec_ydata)
+aoi_grid %>% count(retro_96, na.rm=T) %>% st_drop_geometry(); length(unique(retro_96$grid_id))
+aoi_grid %>% count(retro_97, na.rm=T) %>% st_drop_geometry(); length(unique(retro_97$grid_id))
 
 ################################################################################
 save.image("data/03_analysis_prep.RData")
