@@ -151,6 +151,7 @@ recent_19 <- st_join(recent_traps.sf, aoi_grid) %>%
 ###--- create covariate dataframe to put covariate info
 aoi_grid_id <- aoi_grid$grid_id
 # save(aoi_grid, file = paste0("./out/aoi_grid.RData"))
+# load("data/aoi_grid.RData") # for the complete aoi_grid at the end of this script
 
 cov.df <- as.data.frame(array(seq_len(length(aoi_grid_id)),c(nrow(aoi_grid),1))) # for all cov data
 colnames(cov.df) <- c("grid_id")
@@ -175,9 +176,9 @@ aoi.BEC %>% summarise(Area_km2=sum(Area_km2)) %>% st_drop_geometry # 823 km2 for
 Cairo(file="out/ALL_BEC.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
 ggplot()+
   geom_sf(data=aoi.BEC, aes(fill=ZONE))+
-  geom_sf(data=retro.data.out[[1]]$grid_output$aoi_utm, col="black")+
-  geom_sf(data=retro.data.out[[2]]$grid_output$aoi_utm, col="red")+
-  geom_sf(data=rec.data.out$rec_grid_output$aoi_utm, col="blue")
+  geom_sf(data=retro.traps.out[[1]]$traps.sf, col="black")+
+  geom_sf(data=retro.traps.out[[2]]$traps.sf, col="red")+
+  geom_sf(data=recent_traps.sf, col="blue")
 dev.off()
 
 cov.df$SBS_prop <- NA
@@ -407,11 +408,38 @@ for(i in seq_len(nrow(cov.df))){
   cov.prop <- cov.area/tmp$Area_km2
   cov.df$HARVEST_prop19[i] <- cov.prop
 }
+
+### traplines
+aoi.TRP <- st_read(dsn="./data", layer="Traplines_in_study_area")
+aoi.TRP <- aoi.TRP %>% arrange(TRAPLINE_1)
+aoi.TRP$TRP_DNSTY_9195 <- c(2.00, 0.82, 16.89, 78.77)
+aoi.TRP$TRP_DNSTY_9296 <- c(1.58, 0.70, 25.89, 79.16)
+aoi.TRP$TRP_DNSTY_1418 <- c(0.59, 2.09, 0.00, 0.00)
+
+ggplot()+
+  # geom_sf(data=aoi.TRP, aes(fill=as.factor(TRP_DNSTY_9195)))+
+  geom_sf(data=aoi.TRP, aes(fill=as.factor(TRP_DNSTY_9296)))+
+  # geom_sf(data=aoi.TRP, aes(fill=as.factor(TRP_DNSTY_1418)))+
+  geom_sf(data=aoi_grid, fill=NA)
+
+tmp <- st_join(aoi_grid %>% st_transform(crs=26910), 
+               aoi.TRP %>% st_transform(crs=26910) %>% select(TRP_DNSTY_9195, TRP_DNSTY_9296, TRP_DNSTY_1418), largest=TRUE)
+
+
+cov.df <- left_join(cov.df, tmp %>% select(grid_id, TRP_DNSTY_9195, TRP_DNSTY_9296, TRP_DNSTY_1418) %>% st_drop_geometry())
+
+
+ggplot()+
+  # geom_sf(data=tmp, aes(fill=TRP_DNSTY_1418))+
+  geom_sf(data=tmp, aes(fill=TRP_DNSTY_9296))+
+  # geom_sf(data=tmp, aes(fill=TRP_DNSTY_9195))+
+  geom_sf(data=retro.traps.out[[1]]$traps.sf, col="black")+
+  geom_sf(data=retro.traps.out[[2]]$traps.sf, col="red")+
+  geom_sf(data=recent_traps.sf, col="blue")
+
 # wildfire (Fire Perimeters)
 # bcdc_search("fire", res_format = "wms")
 # no wildfires
-
-### NEED TO ADD in GRID ID for retro polygons - do a spatial join
 
 ################################################################################
 # write.csv(cov.df,"data/ALL.covdata.csv")
@@ -453,7 +481,7 @@ dev.off()
 
 grid_touse <- aoi_grid %>% filter(use==1 | Yrs_surveyed>0) %>% dplyr::select(grid_id) %>% st_drop_geometry()
 cov.df$grid_touse <- case_when(cov.df$grid_id %in% grid_touse$grid_id ~ 1)
-cov.df[is.na(cov.df)] <- 0
+# cov.df[is.na(cov.df)] <- 0
 summary(cov.df)
 
 write.csv(cov.df,"data/covdata.csv")
