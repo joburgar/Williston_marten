@@ -36,6 +36,8 @@ rm(list.of.packages, new.packages) # for housekeeping
 load("out/retro.data.out9697.RData")
 load("out/rec.data.out.RData")
 
+str(retro.data.out)
+
 cov.df <- read.csv("data/covdata.csv",row.names=1)
 head(cov.df)
 # cov.data.files <- c("data/aoi.covdata.1996.csv","data/retro.covdata.1996.csv",
@@ -141,36 +143,81 @@ dev.off()
 # occurrence state does not change over replicate surveys at site i during season t
 # there are no false positive errors
 
-M <- length(ALLcov.df_grid_to_use) # 150; number of sites
-J <- max(length(retro.data.out[[1]]$days21.to.use),  # number of sampling occassions
-         length(retro.data.out[[2]]$days21.to.use),
-         ncol(rec.data.out$rec_effort))
-T <- 3 # number of years / sesasons
-
-
-# data(crossbill)
-# head(crossbill); nrow(crossbill)
-# summary(crossbill)
 head(ALLcov.df)
 
 ALLcov.df_grid_to_use <- ALLcov.df %>% filter(grepl("Traps", Area_Year)) %>% select(grid_id)
 ALLcov.df_grid_to_use <- unique(ALLcov.df_grid_to_use$grid_id)
 length(ALLcov.df_grid_to_use)
 
+M <- length(ALLcov.df_grid_to_use) # 150; number of sites
+J <- max(length(retro.data.out[[1]]$days21.to.use),  # number of sampling occasions
+         length(retro.data.out[[2]]$days21.to.use),
+         ncol(rec.data.out$rec_effort))
+T <- 3 # number of years / seasons
+
+
 # create site covariates
+# 4 covariates that vary by site only
+# geographic range (utm x and utm y), proportion of SBS, distance to water
+load("data/aoi_grid.RData")
+# ggplot()+
+#   geom_sf(data=aoi_grid %>% filter(grid_id %in% ALLcov.df_grid_to_use), aes(fill=Yrs_surveyed))
+
+grid_centroid_utm <- as.data.frame(st_coordinates(st_centroid(aoi_grid)))
+# grid_centroid_utm$grid_id <- rownames(grid_centroid_utm)
+# grid_centroid_to_use <- grid_centroid_utm %>% filter(grid_id %in% ALLcov.df_grid_to_use)
+
+ALLcov.df$utm_x <- grid_centroid_utm$X[match(ALLcov.df$grid_id, rownames(grid_centroid_utm))]
+ALLcov.df$utm_y <- grid_centroid_utm$Y[match(ALLcov.df$grid_id, rownames(grid_centroid_utm))]
+
 colext.df <- ALLcov.df %>% filter(grid_id %in% ALLcov.df_grid_to_use) %>% filter(grepl("Area",Area_Year))
-colext.df$RLW_dist_sq <- colext.df$RLW_dist*colext.df$RLW_dist
-colext.df$RD_density_sq <- colext.df$RD_density*colext.df$RD_density
-colext.df$EDGE_density_sq <- colext.df$EDGE_density*colext.df$EDGE_density
-colext.site <- colext.df %>% select(-grid_id, -Year, -Area_Year, -Area)
-head(colext.site)
+colext.df %>% count(Year) # 150 rows for each year
+colext.df <- colext.df %>% arrange(Year, grid_id) # arrange by Year then by grid_id for consistency
 
-# scale the site covariates
-colext.site <- as.data.frame(scale(colext.site))
-colext.site[is.na(colext.site)] <- 0 # do this to make the NAs for trap density the same as the mean value (could also just delete but then deletes from model)
-summary(colext.site)
-colext.site <- as.matrix(colext.site)
+# the 4 site covariates don't change by year so can be subset to just the 1996-1997 year values
 
+colext.site.cov <- colext.df %>% filter(Year=="1996-1997") %>% dplyr::select(utm_x, utm_y, RLW_dist,SBS_prop)
+summary(colext.site.cov)
+# scale covariates for convergence - keep SBS as proportion 0-1 other ones with mean 0 and 1 SD scale
+colext.site.covS <- cbind(as.data.frame(scale(colext.site.cov[,1:3])),colext.site.cov[4])
+summary(colext.site.covS)
+
+
+# annual covariates
+# yearly site covariates (M rows and T columns)
+year <- c("1996-1997","1997-1998","2019-2020")
+year <- matrix(year, nrow(yy),3,byrow=TRUE)
+
+names(colext.df) # recall that colext.df is arranged by grid_id and then by year
+colext.annual.cov <- colext.df %>% dplyr::select(RD_density, EDGE_density, TRP_DNSTY, TREE20_prop, CANOPY_prop, HARVEST_prop)
+colext.annual.cov <- colext.df %>% dplyr::select(RD_density, EDGE_density, TRP_DNSTY, TREE20_prop, CANOPY_prop, HARVEST_prop)
+colext.annual.covS <- cbind(as.data.frame(scale(colext.annual.cov[,1:3])),colext.annual.cov[,4:6])
+colext.annual.covS[is.na(colext.annual.covS)] <- 0 # change the trapping density to 0 (mean) for unknown pixels
+
+y1 <- 1:nrow(yy)
+y2 <- (nrow(yy)+1):(2*nrow(yy))
+y3 <- (2*nrow(yy)+1):(3*nrow(yy))
+
+
+create_annual_cov_matrix <- function(M=150, T=3, cov.df=cov.df, cov.name=cov.name){
+  cov_array <- array(NA, dim=c(M, T))
+  cov_array[,1] <- unlist(cov.df[y1,][c(cov.name)])
+  cov_array[,2] <- unlist(cov.df[y2,][c(cov.name)])
+  cov_array[,3] <- unlist(cov.df[y3,][c(cov.name)])
+  return(cov_array)
+}
+
+names(colext.annual.covS)
+
+RD_dnsty <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="RD_density")
+EDGE_dnsty <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="EDGE_density")
+TRP_dnsty <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="TRP_DNSTY")
+TREE20_prop <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="TREE20_prop")
+CANOPY_prop <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="CANOPY_prop")
+HARVEST_prop <- create_annual_cov_matrix(cov.df=colext.annual.covS, cov.name="HARVEST_prop")
+
+
+################################################################################
 # detection data
 y_all <- array(NA,dim=c(length(ALLcov.df_grid_to_use),0))
 rownames(y_all) <- as.character(ALLcov.df_grid_to_use)
@@ -210,55 +257,112 @@ sum(y, na.rm=T); sum(sum(y96, na.rm=T),sum(y97, na.rm = T),sum(y19, na.rm = T))
 
 yy <- matrix(y, M, J*T)
 
-# yearly covariates (think it's just one row for each site...)
-year <- c("1996-1997","1997-1998","2019-2020")
-year <- matrix(year, nrow(yy),3,byrow=TRUE)
+################################################################################
+# effort data
+e_all <- array(NA,dim=c(length(ALLcov.df_grid_to_use),0))
+rownames(e_all) <- as.character(ALLcov.df_grid_to_use)
 
-simUMF <- unmarkedMultFrame(
+e96.df <- retro.data.out[[1]]$effort.21days
+e96 <- merge(e_all, e96.df, by="row.names", all.x=TRUE)
+e96 <- arrange(e96, Row.names)
+rownames(e96) <- e96$Row.names
+e96$Row.names <- NULL
+e96 <- as.matrix(e96)
+
+e97.df <- retro.data.out[[2]]$effort.21days
+e97 <- merge(e_all, e97.df, by="row.names", all.x=TRUE)
+e97 <- arrange(e97, Row.names)
+rownames(e97) <- e97$Row.names
+e97$Row.names <- NULL
+e97 <- as.matrix(e97)
+
+e19.df <- rec.data.out$rec_effort
+e19 <- merge(e_all, e19.df, by="row.names", all.x=TRUE)
+e19 <- arrange(e19, Row.names)
+rownames(e19) <- e19$Row.names
+e19$Row.names <- NULL
+e19 <- as.matrix(e19)
+
+e <- array(NA, dim=c(M,J,T))
+e[,,1] <- cbind(e96, array(NA, dim=c(nrow(e96),J-ncol(e96))))
+e[,,2] <- cbind(e97, array(NA, dim=c(nrow(e97),J-ncol(e97))))
+e[,,3] <- cbind(e19, array(NA, dim=c(nrow(e19),J-ncol(e19))))
+
+sum(e, na.rm=T); sum(sum(e96, na.rm=T),sum(e97, na.rm = T),sum(e19, na.rm = T))
+ee <- matrix(e, M, J*T)
+
+# same scaling as other covariates
+# sd.ee <- sd(c(ee), na.rm=TRUE)
+# mean.ee <- mean(ee, na.rm=TRUE)
+# eeS <- (ee - mean.ee) / sd.ee
+
+# use the scale by 2 SDs here following Gelman (2006) if want the same as n-mixture
+# simple function to standardize variables
+std2=function(x){
+  (x - mean(x,na.rm=TRUE))/(2*sd(x,na.rm=TRUE))
+}
+
+eeS = std2(ee)
+summary(eeS, na.rm=T)
+################################################################################
+
+###--- combine data for simple data frame - only year as yearly site covariates
+sUMF <- unmarkedMultFrame(
   y = yy,
   yearlySiteCovs = list(year = year),
   numPrimary=T)
-summary(simUMF)
+summary(sUMF)
 
 # Model with all constant parameters
 m0 <- colext(psiformula= ~1, gammaformula = ~ 1, epsilonformula = ~ 1,
-                 pformula = ~ 1, data = simUMF, method="BFGS")
+                 pformula = ~ 1, data = sUMF, method="BFGS")
 summary(m0)
 
 names(m0)
 # [1] "psi" "col" "ext" "det"
 # occupancy, colonization, extinction, detection
 
-# backTransform(m0, type="psi")
-# backTransform(m0, type="col")
-# backTransform(m0, type="ext")
-# backTransform(m0, type="det")
+# back-transform to original scale using the inverse-logit function (plogis)
+# all parameters were estimated on the logit scale
 
+plogis(coef(m0))
+# psi(Int)     col(Int)     ext(Int)       p(Int) 
+# 0.9999999326 0.0001749503 0.2651643237 0.2167176622
+
+# can also use backTransform function to back transform estimate, se and confidence intervals
+backTransform(m0, type="psi")
 confint(backTransform(m0, type="psi"))
 
-
+###--- dynamic occupancy model with full year-dependence in the parameters describing occupancy dynamics and also detection
+# as year is a factor, this analysis is parameterized in terms of an intercept and effects representing differences
+# this means that the parameter for the first year is the intercept and the effects denote differences between the parameter values in all other years,
+# relative to the parameter value in the first year, which serves as a reference level
+# a means parameterization may be more practical for simple presentation
+# means parameterization can be specified by adding a -1 to the formula for the time-dependent parameters
 m1 <- colext(psiformula = ~1, # First-year occupancy
                gammaformula = ~ year-1, # Colonization
                epsilonformula = ~ year-1, # Extinction
                pformula = ~ year-1, # Detection
-               data = simUMF)
+               data = sUMF)
 m1
-
+backTransform(m1, type="psi")
+confint(backTransform(m1, type="psi"))
 
 nd <- data.frame(year=c("1996-1997","1997-1998"))
 E.ext <- predict(m1, type='ext', newdata=nd)
 E.col <- predict(m1, type='col', newdata=nd)
 nd <- data.frame(year=c("1996-1997","1997-1998","2019-2020"))
 E.det <- predict(m1, type='det', newdata=nd)
+# plogis(coef(m1)) # checking to see same back transformation with predict and plogis = TRUE
 
-op <- par(mfrow=c(3,1), mai=c(0.6, 0.6, 0.1, 0.1))
+op <- par(mfrow=c(3,1))
 with(E.ext, { # Plot for extinction probability
   plot(1:2, Predicted, pch=1, xaxt='n', xlab='Year',
        ylab=expression(paste('Extinction probability ( ', epsilon, ' )')),
-       ylim=c(0,1), col=4)
+       ylim=c(0,1))
   axis(1, at=1:2, labels=nd$year[1:2])
   arrows(1:2, lower, 1:2, upper, code=3, angle=90, length=0.03, col=4)
-  points((1:2)-0.1, 1-phi, col=1, lwd = 1, pch=16)
+  points((1:2), 1-phi, col=1, lwd = 1, pch=16)
   legend(7, 1, c('Parameter', 'Estimate'), col=c(1,4), pch=c(16, 1),
          cex=0.8)
 })
@@ -269,7 +373,7 @@ with(E.col, { # Plot for colonization probability
        ylim=c(0,1), col=4)
   axis(1, at=1:2, labels=nd$year[1:2])
   arrows(1:2, lower, 1:2, upper, code=3, angle=90, length=0.03, col=4)
-  points((1:2)-0.1, gamma, col=1, lwd = 1, pch=16)
+  points((1:2), gamma, col=1, lwd = 1, pch=16)
   legend(7, 1, c('Parameter', 'Estimate'), col=c(1,4), pch=c(16, 1),
          cex=0.8)
 })
@@ -279,175 +383,144 @@ with(E.det, { # Plot for detection probability: note 3 years
        ylim=c(0,1), col=4)
   axis(1, at=1:3, labels=nd$year)
   arrows(1:3, lower, 1:3, upper, code=3, angle=90, length=0.03, col=4)
-  points((1:3)-0.1, p, col=1, lwd = 1, pch=16)
+  points((1:3), p, col=1, lwd = 1, pch=16)
   legend(7.5, 1, c('Parameter','Estimate'), col=c(1,4), pch=c(16, 1),
          cex=0.8)
 })
 par(op)
 
 
-# detection_history <- retro.data.out[[1]]$y_21day
-# detection_history <- retro.data.out[[2]]$y_21day
-detection_history <- rec.data.out$rec_ydata
-detection_history[detection_history > 0] <- 1 # change to 0 and 1 only
+m1 <- nonparboot(m1, B = 10) # B should be 1000 for more complex models
+cbind(smoothed=smoothed(m1)[2,], SE=m1@smoothed.mean.bsse[2,])
 
-# Examine data
-# head(detection_history)
+# # turnover (not sure this is relevant, just following along colext example)
+# turnover <- function(fm) {
+#   psi.hat <- plogis(coef(fm, type="psi"))
+#   if(length(psi.hat) > 1)
+#     stop("this function only works if psi is scalar")
+#   T <- getData(fm)@numPrimary
+#   tau.hat <- numeric(T-1)
+#   gamma.hat <- plogis(coef(fm, type="col"))
+#   phi.hat <- 1 - plogis(coef(fm, type="ext"))
+#   if(length(gamma.hat) != T-1 | length(phi.hat) != T-1)
+#     stop("this function only works if gamma and phi T-1 vectors")
+#   for(t in 2:T) {
+#     psi.hat[t] <- psi.hat[t-1]*phi.hat[t-1] +
+#       (1-psi.hat[t-1])*gamma.hat[t-1]
+#     tau.hat[t-1] <- gamma.hat[t-1]*(1-psi.hat[t-1]) / psi.hat[t]
+#   }
+#   return(tau.hat)
+# }
 
-# Create unmarkedFrameOccu that holds the data
-sample.unmarkedFrame_simple <- unmarkedFrameOccu( # y is a matrix with observed detection history 
-  # (0's and 1's, one row per site, one column per survey)
-  y = as.matrix(detection_history)) 
-
-# S4 class for occupancy model data
-summary(sample.unmarkedFrame_simple)
-
-
-# Build basic single-season occupancy model with intercepts only (one estimate for detection, one for occupancy)
-occu.m1 <- occu(formula = ~1 # detection formula first
-                ~1, # occupancy formula second, 
-                data = sample.unmarkedFrame_simple)
-
-summary(occu.m1) # Show AIC, estimates (on logit scale), SE, z-scores
-
-# To get real estimate of occupancy (with 95% CI)
-predict(occu.m1, 
-        newdata = data.frame(site = 1),
-        type = "state")
-
-# To get real estimate of detection (with 95% CI)
-predict(occu.m1, 
-        newdata = data.frame(site = 1),
-        type = "det")
-
-boot::inv.logit(coef(occu.m1)[1]) # Real estimate of occupancy
-boot::inv.logit(coef(occu.m1)[2]) # Real estimate of detection
-
-# Load covariate data
-head(ALLcov.df)
-grid_centroid_utm <- as.data.frame(st_coordinates(st_centroid(aoi_grid)))
-
-ALLcov.df$utm_x <- grid_centroid_utm$X[match(ALLcov.df$grid_id, rownames(grid_centroid_utm))]
-ALLcov.df$utm_y <- grid_centroid_utm$Y[match(ALLcov.df$grid_id, rownames(grid_centroid_utm))]
-
-# cov.df <- ALLcov.df %>% filter(Area_Year=="Traps 1996") %>% select(-grid_id, -Area, -Year, -Area_Year)
-# cov.df <- ALLcov.df %>% filter(Area_Year=="Traps 1997") %>% select(-grid_id, -Area, -Year, -Area_Year)
-cov.df <- ALLcov.df %>% filter(Area_Year=="Traps 2019") %>% select(-grid_id, -Area, -Year, -Area_Year)
-summary(cov.df)
-
-cov.df$RLW_dist_sq <- cov.df$RLW_dist*cov.df$RLW_dist
-cov.df$RD_density_sq <- cov.df$RD_density*cov.df$RD_density
-cov.df$EDGE_density_sq <- cov.df$EDGE_density*cov.df$EDGE_density
-dim(cov.df)
-summary(cov.df)
-
-cov.df_scaled <- as.data.frame(scale(cov.df))
-summary(cov.df_scaled)
-cov.df_scaled[is.na(cov.df_scaled)] <- 0
-
-# scale(x,center=min(x),scale=diff(range(x)))
-# https://stackoverflow.com/questions/5468280/scale-a-series-between-two-points
-
-# effort <- retro.data.out[[1]]$effort.21days
-# effort <- retro.data.out[[2]]$effort.21days
-effort <- rec.data.out$rec_effort
-
-# Build a new unmarkedFramOccu
-# sample.unmarkedFrame_cov <- unmarkedFrameOccu( # y is a matrix with observed detection history 
-#   # (0's and 1's, one row per site, one column per survey)
-#   y = as.matrix(detection_history),
-#   # obsCovs = observation covariates in a list, 
-#   # each variable has site rows x survey columns
-#   obsCovs = list(effort = effort),
-#   # siteCovs = dataframe with site rows x column variables
-#   siteCovs = cov.df)
-
-sample.unmarkedFrame_cov_scaled <- unmarkedFrameOccu( # y is a matrix with observed detection history 
-  # (0's and 1's, one row per site, one column per survey)
-  y = as.matrix(detection_history),
-  # obsCovs = observation covariates in a list, 
-  # each variable has site rows x survey columns
-  obsCovs = list(effort = effort),
-  # siteCovs = dataframe with site rows x column variables
-  siteCovs = cov.df_scaled)
-# S4 class for occupancy model data
-summary(sample.unmarkedFrame_cov_scaled)
-
-occu.m2 <- occu(formula = ~effort # detection formula first
-                ~1,
-                data = sample.unmarkedFrame_cov_scaled)
+# parametric bootstrap for turnover function
+# again, not sure this is relevant
+pb <- parboot(m1, statistic=turnover, nsim=2)
+pb <- nonparboot(m1, statistic=turnover, nsim=2)
+turnCI <- cbind(pb@t0,
+                  t(apply(pb@t.star, 2, quantile, probs=c(0.025, 0.975))))
+colnames(turnCI) <- c("tau", "lower", "upper")
+turnCI
 
 
-occu.full <- occu(formula = ~effort # detection formula first
-                ~ TRP_DNSTY + utm_x + utm_y + SBS_prop + RLW_dist + RLW_dist_sq + RD_density + RD_density_sq + TREE20_prop + 
-                  CANOPY_prop + EDGE_density + EDGE_density_sq + HARVEST_prop, # occupancy formula second,
-                data = sample.unmarkedFrame_cov_scaled)
+###--- Goodness of fit - experimental with dynamic occupancy models
+# doesn't work with missing values....best to simulate?
+# chisq <- function(fm) {
+#   umf <- getData(fm)
+#   y <- getY(umf)
+#   sr <- fm@sitesRemoved
+#   if(length(sr)>0)
+#     y <- y[-sr,,drop=FALSE]
+#   fv <- fitted(fm, na.rm=TRUE)
+#   y[is.na(fv)] <- NA
+#   sum((y-fv)^2/(fv*(1-fv)))
+# }
+# pb.gof <- parboot(m0, statistic=chisq, nsim=100)
 
 
-# Summarize
-summary(occu.m1)
-summary(occu.m2)
-summary(occu.full)
 
-# dredge all possible combinations of the occupancy covariates
-occ_dredge <- dredge(occu.full)
+################################################################################
+# find the best supported model within a covariate category and then add complexity
+# 1: simply test the effect of year
+# 2: test the effect of sampling effort
+# 3: test the site covariates
+# 4: move on to the more comple yearly site covariates
 
-# model comparison to explore the results for occupancy
-mc <- as.data.frame(occ_dredge) %>% 
-  select(starts_with("psi"), df, AICc, delta, weight)
-# # shorten names for printing
-names(mc) <- names(mc) %>%
-  str_remove("psi") %>% 
-  coalesce(names(mc))
+names(colext.annual.covS)
+# now try with site covariates as well as year
+umf <- unmarkedMultFrame(
+  y = yy,
+  siteCovs = colext.site.covS,
+  yearlySiteCovs = list(year = year, 
+                        road=RD_dnsty, edge=EDGE_dnsty, trap=TRP_dnsty, tree20=TREE20_prop, canopy=CANOPY_prop, harvest=HARVEST_prop),
+  obsCovs = list(effort=eeS), # use the scaled values for eeS (same values as in N-mixture)
+  numPrimary=T)
+summary(umf)
 
-# take a quick peak at the model selection table
-mst <- mutate_all(mc, ~ round(., 3)) %>% 
-  head(20) %>% 
-  knitr::kable()
+# Model with all constant parameters
+# A model with constant parameters
+fm0 <- colext(~1, ~1, ~1, ~1, umf)
 
-# for the 2019 data, occu.m3 is the best model (next top model is > delta 2 away; still not great for aic weight)
-# occu.m3 <- occu(formula = ~effort # detection formula first
-#                 ~utm_x + SBS_prop + RLW_dist + RLW_dist_sq + RD_density_sq +
-#                   EDGE_density + HARVEST_prop, # occupancy formula second,
-#                 data = sample.unmarkedFrame_cov_scaled)
-# summary(occu.m3)
-# 
-# occ_gof <- mb.gof.test(occu.m3, nsim = 1000, plot.hist = FALSE) # up to nsim=1000 when actually checking final model
-# # hide the chisq table to give simpler output
-# occ_gof$chisq.table <- NULL
-# occ_gof
-# 
-# boot::inv.logit(coef(occu.m3)[1]) #occupancy
-# boot::inv.logit(coef(occu.m3)[9]) #detection (per sampling session)
+# Like fm0, but with year-dependent detection
+fmy1 <- colext(~1, ~1, ~1, ~year, umf)
+# Like fm0, but with year-dependent colonization and extinction
+fmy2 <- colext(~1, ~year-1, ~year-1, ~1, umf)
+# A fully time-dependent model
+fmy3 <- colext(~1, ~year-1, ~year-1, ~year, umf)
 
-# for the 1997 data, use model averaging to get info for the top models within delta aicc
-# select models with the most support for model averaging (< 2 delta aicc)
-occ_dredge_delta <- get.models(occ_dredge, subset = delta <= 2)
+Yearmodels <- fitList('psi(.)gam(.)eps(.)p(.)' = fm0,
+                      'psi(.)gam(.)eps(.)p(Y)' = fmy1, # best model
+                      'psi(.)gam(Y)eps(Y)p(.)' = fmy2,
+                      'psi(.)gam(Y)eps(Y)p(Y)' = fmy3)
 
-# average models based on model weights 
-occ_avg <- model.avg(occ_dredge_delta, fit = TRUE)
-coef(occ_avg)
+Yms <- modSel(Yearmodels)
+Yms
+
+# add effort in to the detection portion and test with and without year
+fme1 <- colext(~1, ~1, ~1, ~effort, umf)
+fme2 <- colext(~1, ~1, ~1, ~effort+I(effort^2), umf)
+fmye1 <- colext(~1, ~1, ~1, ~year+effort, umf)
+fmye2 <- colext(~1, ~1, ~1, ~year+effort+I(effort^2), umf)
+
+Effortmodels <- fitList('psi(.)gam(.)eps(.)p(.)' = fm0,
+                      'psi(.)gam(.)eps(.)p(Y)' = fmy1,
+                      'psi(.)gam(.)eps(.)p(E)' = fme1,
+                      'psi(.)gam(.)eps(.)p(YE)' = fmye1,
+                      'psi(.)gam(.)eps(.)p(E2)' = fme2,
+                      'psi(.)gam(.)eps(.)p(YE2)' = fmye2) # clearly the best model
+
+Ems <- modSel(Effortmodels)
+Ems 
+
+summary(fmye2)
+plogis(coef(fmye2)) # checking to see same back transformation with predict and plogis = TRUE
+
+################################################################################
+# Now consider the covariates in their groupings
+# Sampling bias and year have been taken into account
+# Forest Structure: SBS_prop, TREE20_prop, CANOPY_prop
+# Landscape: RLW_dist, I(RLW_dist^2), utm_x, utm_y
+# Human Disturbance: HARVEST_prop, EDGE_density, I(EDGE_density^2), RD_density, I(RD_density^2), TRP_DNSTY
+
+###--- Forest Structure (both occupancy and detection?)
+# Like fmye1 with proportion of SBS as 1st-year occupancy
+fmFS1 <- colext(~SBS_prop, ~1, ~1, ~year+effort+I(effort^2), umf)
+# Like fm4 with utm_x dependent on occupancy
+fmFS2 <- colext(~TREE20_prop, ~1, ~1, ~year+effort+I(effort^2),umf)
+# Same as fm5, with utm_y dependent on occupancy
+fmFS3 <- colext(~CANOPY_prop, ~1, ~1, ~year+effort+I(effort^2),umf)
 
 
-# recent_occ_output <- list(occu.m2=occu.m2, occu.m3=occu.m3, mc=mc,occ_dredge=occ_dredge,occ_gof=occ_gof)
-# save(recent_occ_output, file = paste0("./out/recent_occ_output.RData"))
-# # load("out/recent_occ_output.RData")
-# recent_occ_output$mc
-# write.csv(recent_occ_output$mc,"out/recent_occ_mc.csv")
-# write.csv(as.data.frame(summary(recent_occ_output$occu.m3)),"out/recent_occu.m3.csv")
+# Same as fm3, with curvilinear distance to water dependent on occupancy
+fmFS4 <- colext(~RLW_dist + I(RLW_dist^2), ~1, ~1, ~year+effort+I(effort^2),umf)
+# Same as fm6, with curvilinear distance to water dependent on occupancy
+fmFS5 <- colext(~SBS_prop + utm_x + utm_y + RLW_dist + I(RLW_dist^2), ~1, ~1, ~year+effort+I(effort^2),umf)
 
-retro_occ_output <- list(occu.m2=occu.m2, mc=mc,occ_dredge=occ_dredge,occ_avg=occ_avg)
-save(retro_occ_output, file = paste0("./out/retro97_occ_output.RData"))
-load("out/retro97_occ_output.RData")
-write.csv(retro_occ_output$mc,"out/retro_occ_mc.csv")
-write.csv(as.data.frame(coef(retro_occ_output$occ_avg)),"out/retro_occ_avg.csv")
+Sitemodels <- fitList('psi(.)gam(.)eps(.)p(YE)' = fmye1,
+                      'psi(SBS)gam(.)eps(.)p(YE)' = fmS1,
+                      'psi(utmx)gam(.)eps(.)p(YE)' = fmS2,
+                      'psi(utmy)gam(.)eps(.)p(YE)' = fmS3,
+                      'psi(W2)gam(.)eps(.)p(YE)' = fmS4,
+                      'psi(SBS_utmx_utmy_W2)gam(.)eps(.)p(YE)' = fmS5)
 
-
-# 1996 models did not converge - only the null model converged with psi(Int) 0.9161621 and p(Int) 0.3087824 (but not a good fit)
-
-# boot::inv.logit(coef(recent_occ_output$occu.m2)) # Real estimate of occupancy / detection
-# boot::inv.logit(coef(retro_occ_output$occu.m2)) # Real estimate of occupancy / detection
-
-boot::inv.logit(coef(recent_occ_output$occu.m3)[1]);boot::inv.logit(coef(recent_occ_output$occu.m3)[9])
-boot::inv.logit(coef(retro_occ_output$occ_avg)[1]);boot::inv.logit(coef(retro_occ_output$occ_avg)[5])
-
+Sms <- modSel(Sitemodels)
+Sms # similar top models - try with different variations
