@@ -414,13 +414,12 @@ cbind(smoothed=smoothed(m1)[2,], SE=m1@smoothed.mean.bsse[2,])
 
 # parametric bootstrap for turnover function
 # again, not sure this is relevant
-pb <- parboot(m1, statistic=turnover, nsim=2)
-pb <- nonparboot(m1, statistic=turnover, nsim=2)
-turnCI <- cbind(pb@t0,
-                  t(apply(pb@t.star, 2, quantile, probs=c(0.025, 0.975))))
-colnames(turnCI) <- c("tau", "lower", "upper")
-turnCI
-
+# pb <- parboot(m1, statistic=turnover, nsim=2)
+# pb <- nonparboot(m1, statistic=turnover, nsim=2)
+# turnCI <- cbind(pb@t0,
+#                   t(apply(pb@t.star, 2, quantile, probs=c(0.025, 0.975))))
+# colnames(turnCI) <- c("tau", "lower", "upper")
+# turnCI
 
 ###--- Goodness of fit - experimental with dynamic occupancy models
 # doesn't work with missing values....best to simulate?
@@ -435,8 +434,6 @@ turnCI
 #   sum((y-fv)^2/(fv*(1-fv)))
 # }
 # pb.gof <- parboot(m0, statistic=chisq, nsim=100)
-
-
 
 ################################################################################
 # find the best supported model within a covariate category and then add complexity
@@ -491,7 +488,7 @@ Effortmodels <- fitList('psi(.)gam(.)eps(.)p(.)' = fm0,
 Ems <- modSel(Effortmodels)
 Ems 
 
-summary(fmye2)
+summary(fme2)
 plogis(coef(fmye2)) # checking to see same back transformation with predict and plogis = TRUE
 
 ################################################################################
@@ -501,26 +498,197 @@ plogis(coef(fmye2)) # checking to see same back transformation with predict and 
 # Landscape: RLW_dist, I(RLW_dist^2), utm_x, utm_y
 # Human Disturbance: HARVEST_prop, EDGE_density, I(EDGE_density^2), RD_density, I(RD_density^2), TRP_DNSTY
 
-###--- Forest Structure (both occupancy and detection?)
-# Like fmye1 with proportion of SBS as 1st-year occupancy
-fmFS1 <- colext(~SBS_prop, ~1, ~1, ~year+effort+I(effort^2), umf)
-# Like fm4 with utm_x dependent on occupancy
-fmFS2 <- colext(~TREE20_prop, ~1, ~1, ~year+effort+I(effort^2),umf)
-# Same as fm5, with utm_y dependent on occupancy
-fmFS3 <- colext(~CANOPY_prop, ~1, ~1, ~year+effort+I(effort^2),umf)
+###--- Forest Structure (on occupancy)
+# Like fmye2 with variations on forest structure
+fmFS1 <- colext(~SBS_prop, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS2 <- colext(~TREE20_prop, ~1, ~1, ~year+effort+I(effort^2),umf,control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS3 <- colext(~CANOPY_prop, ~1, ~1, ~year+effort+I(effort^2),umf,control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS4 <- colext(~SBS_prop + TREE20_prop, ~1, ~1, ~year+effort+I(effort^2), umf,control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS5 <- colext(~TREE20_prop + CANOPY_prop, ~1, ~1, ~year+effort+I(effort^2),umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS6 <- colext(~CANOPY_prop + SBS_prop, ~1, ~1, ~year+effort+I(effort^2),umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmFS7 <- colext(~CANOPY_prop + SBS_prop + TREE20_prop, ~1, ~1, ~year+effort+I(effort^2),umf,control=list(maxit=1000, trace=TRUE, REPORT=1))
+
+ForestStructuremodels <- fitList('psi(.)gam(.)eps(.)p(YE2)' = fmye2,
+                      'psi(SBS)gam(.)eps(.)p(YE2)' = fmFS1,
+                      'psi(TREE)gam(.)eps(.)p(YE2)' = fmFS2,
+                      'psi(CANOPY)gam(.)eps(.)p(YE2)' = fmFS3,
+                      'psi(SBS_TREE)gam(.)eps(.)p(YE2)' = fmFS4,
+                      'psi(TREE_CANOPY)gam(.)eps(.)p(YE2)' = fmFS5,
+                      'psi(CANOPY_SBS)gam(.)eps(.)p(YE2)' = fmFS6,
+                      'psi(CANOPY_SBS_TREE)gam(.)eps(.)p(YE2)' = fmFS7)
+
+FSms <- modSel(ForestStructuremodels)
+FSms # no real difference with or without SBS (came in as 0.26 difference from "top" model of fmye2)
+
+summary(fmFS1)
+
+###--- Landscape (on occupancy): RLW_dist, I(RLW_dist^2), utm_x, utm_y
+# Like fmye2 & fmFS1 with variations on forest structure
+fmLS1 <- colext(~SBS_prop + RLW_dist, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS2 <- colext(~SBS_prop + RLW_dist + I(RLW_dist^2), ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS3 <- colext(~SBS_prop + utm_x, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS4 <- colext(~SBS_prop + utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS5 <- colext(~SBS_prop + RLW_dist + I(RLW_dist^2)+utm_x, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS6 <- colext(~SBS_prop + RLW_dist + I(RLW_dist^2)+utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS7 <- colext(~SBS_prop +utm_x +utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS8 <- colext(~SBS_prop + RLW_dist + I(RLW_dist^2)+utm_x+utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS9 <- colext(~RLW_dist + I(RLW_dist^2)+utm_x+utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmLS10 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y, ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+
+Landscapemodels <- fitList('psi(.)gam(.)eps(.)p(YE2)' = fmye2,
+                           'psi(SBS_W)gam(.)eps(.)p(YE2)' = fmFS1,
+                           'psi(SBS_W2)gam(.)eps(.)p(YE2)' = fmLS1,
+                           'psi(SBS_utmx)gam(.)eps(.)p(YE2)' = fmLS3,
+                           'psi(SBS_utmy)gam(.)eps(.)p(YE2)' = fmLS4,
+                           'psi(SBS_W2_utmx)gam(.)eps(.)p(YE2)' = fmLS5,
+                           'psi(SBS_W2_utmy)gam(.)eps(.)p(YE2)' = fmLS6,
+                           'psi(SBS_utmx_utmy)gam(.)eps(.)p(YE2)' = fmLS7,
+                           'psi(SBS_W2_utmx_utmy)gam(.)eps(.)p(YE2)' = fmLS8,
+                           # 'psi(W2_utmx_utmy)gam(.)eps(.)p(YE2)' = fmLS9,
+                           'psi(W2_utmy)gam(.)eps(.)p(YE2)' = fmLS10)
+
+LSms <- modSel(Landscapemodels)
+LSms # slightly better without SBS, but within 2 delta - no clear winners other than including W2 and possibly utmy
+
+summary(fmLS10)
+
+###--- Human Disturbance (on occupancy): HARVEST_prop, EDGE_density, I(EDGE_density^2), RD_density, I(RD_density^2), TRP_DNSTY
+# Like fmLS10 with variations on human disturbance
+fmHD1 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + HARVEST_prop,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD2 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + EDGE_dnsty + I(EDGE_dnsty^2),
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD3 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + RD_dnsty + I(RD_dnsty^2),
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD4 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + TRP_dnsty,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD5 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + HARVEST_prop + EDGE_dnsty + I(EDGE_dnsty^2),
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD6 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + HARVEST_prop +RD_dnsty + I(RD_dnsty^2) ,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD7 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + HARVEST_prop + TRP_dnsty,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD8 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + EDGE_dnsty + I(EDGE_dnsty^2) + RD_dnsty + I(RD_dnsty^2) ,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD9 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + EDGE_dnsty + I(EDGE_dnsty^2) + TRP_dnsty,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD10 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + RD_dnsty + I(RD_dnsty^2) + TRP_dnsty,
+                ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+fmHD11 <- colext(~RLW_dist + I(RLW_dist^2)+utm_y + HARVEST_prop + EDGE_dnsty + I(EDGE_dnsty^2) + RD_dnsty + I(RD_dnsty^2) + TRP_dnsty,
+                 ~1, ~1, ~year+effort+I(effort^2), umf, control=list(maxit=1000, trace=TRUE, REPORT=1))
+
+Disturbancemodels <- fitList('psi(.)gam(.)eps(.)p(YE2)' = fmye2,
+                              'psi(W2_utmy)gam(.)eps(.)p(YE2)' = fmLS10,
+                              'psi(W2_utmy_H)gam(.)eps(.)p(YE2)' = fmHD1,
+                              'psi(W2_utmy_E2)gam(.)eps(.)p(YE2)' = fmHD2, # top by 3.33
+                              'psi(W2_utmy_R2)gam(.)eps(.)p(YE2)' = fmHD3,
+                              'psi(W2_utmy_T)gam(.)eps(.)p(YE2)' = fmHD4,
+                              'psi(W2_utmy_HE2)gam(.)eps(.)p(YE2)' = fmHD5,
+                              'psi(W2_utmy_HR2)gam(.)eps(.)p(YE2)' = fmHD6,
+                              'psi(W2_utmy_HT)gam(.)eps(.)p(YE2)' = fmHD7,
+                              'psi(W2_utmy_E2R2)gam(.)eps(.)p(YE2)' = fmHD8,
+                              'psi(W2_utmy_E2T)gam(.)eps(.)p(YE2)' = fmHD9,
+                              'psi(W2_utmy_R2T)gam(.)eps(.)p(YE2)' = fmHD10,
+                              'psi(W2_utmy_HE2R2T)gam(.)eps(.)p(YE2)' = fmHD11)
+
+HDms <- modSel(Disturbancemodels)
+HDms # slightly better without SBS, but within 2 delta - no clear winners other than including W2 and possibly utmy
 
 
-# Same as fm3, with curvilinear distance to water dependent on occupancy
-fmFS4 <- colext(~RLW_dist + I(RLW_dist^2), ~1, ~1, ~year+effort+I(effort^2),umf)
-# Same as fm6, with curvilinear distance to water dependent on occupancy
-fmFS5 <- colext(~SBS_prop + utm_x + utm_y + RLW_dist + I(RLW_dist^2), ~1, ~1, ~year+effort+I(effort^2),umf)
+fmHD2 <- nonparboot(fmHD2, B = 1000) # B should be 1000 for more complex models
+save(fmHD2, file = paste0("./out/colext_top_model_fmHD2.RData"))
 
-Sitemodels <- fitList('psi(.)gam(.)eps(.)p(YE)' = fmye1,
-                      'psi(SBS)gam(.)eps(.)p(YE)' = fmS1,
-                      'psi(utmx)gam(.)eps(.)p(YE)' = fmS2,
-                      'psi(utmy)gam(.)eps(.)p(YE)' = fmS3,
-                      'psi(W2)gam(.)eps(.)p(YE)' = fmS4,
-                      'psi(SBS_utmx_utmy_W2)gam(.)eps(.)p(YE)' = fmS5)
+cbind(smoothed=smoothed(fmHD2)[2,], SE=fmHD2@smoothed.mean.bsse[2,])
 
-Sms <- modSel(Sitemodels)
-Sms # similar top models - try with different variations
+
+TopModels <- fitList('psi(.)gam(.)eps(.)p(Y)' = fmy1,
+                     'psi(.)gam(.)eps(.)p(YE2)' = fmye2,
+                     'psi(SBS)gam(.)eps(.)p(YE2)' = fmFS1,
+                     'psi(W2_utmy)gam(.)eps(.)p(YE2)' = fmLS10,
+                     'psi(W2_utmy_E2)gam(.)eps(.)p(YE2)' = fmHD2)
+
+top_models_ms <- modSel(TopModels)
+top_models_ms
+coef(top_models_ms)
+SE(top_models_ms)
+toExport <- as(top_models_ms, "data.frame")
+write.csv(toExport, "out/colext_top_model_ms.csv")
+
+# can also use backTransform function to back transform estimate, se and confidence intervals
+toExport2 <- plogis(coef(fmHD2))
+print(toExport2)
+write.csv(toExport2, "out/colext_top_model_backtransform.csv")
+
+summary(fmHD2)
+# only things significant are year and effort on detection probability
+# no need to graph the occupancy covariates, instead go with figures for detection probability
+
+# op <- par(mfrow=c(2,1), mai=c(0.8,0.8,0.1,0.1))
+# nd <- data.frame(utm_y=seq(-2,2, length=50),
+#                  RLW_dist=seq(-1,5.5, length=50),
+#                  EDGE_dnsty=seq(-1.5,3.5, length=50))
+# # do this for W2, EDGE and utmY on occupancy
+# E.psi <- predict(fmLS10, type="psi", newdata=nd, appendData=TRUE)
+# E.psi$utmyOrig <- E.psi$utm_y*(sd(colext.site.cov$utm_y, na.rm=T)) + mean(colext.site.cov$utm_y, na.rm = T)
+# E.psi$RLWOrig <- E.psi$RLW_dist*(sd(colext.site.cov$RLW_dist, na.rm=T)) + mean(colext.site.cov$RLW_dist, na.rm = T)
+# 
+# 
+# with(E.psi, {
+#   plot(utmyOrig, Predicted, ylim=c(0,1), type="l",
+#        xlab="South-North Gradient",
+#        ylab=expression(hat(psi)), cex.lab=0.8, cex.axis=0.8)
+#   lines(utmyOrig, Predicted+1.96*SE, col=gray(0.7))
+#   lines(utmyOrig, Predicted-1.96*SE, col=gray(0.7))
+# })
+# with(E.psi, {
+#   plot(RLWOrig, Predicted, ylim=c(0,1), type="l",
+#        xlab="Distance to Watercourse",
+#        ylab=expression(hat(psi)), cex.lab=0.8, cex.axis=0.8)
+#   lines(RLWOrig, Predicted+1.96*SE, col=gray(0.7))
+#   lines(RLWOrig, Predicted-1.96*SE, col=gray(0.7))
+# })
+# do this for effort and year on detection
+
+# need to do this for year as well
+# nd <- data.frame(utm_y=seq(-2,2, length=50),
+#                  RLW_dist=seq(-1,5.5, length=50),
+#                  EDGE_dnsty=seq(-1.5,3.5, length=50),
+#                  year=factor("1996-1997", levels=c(unique(year))),
+#                  effort=seq(-0.3,3.5,length=50))
+
+Cairo(file="out/colext_top_model_pdetfig.PNG",type="png",width=3000,height=2600,pointsize=13,bg="white",dpi=300)
+
+nd <- data.frame(utm_y=0,
+                 RLW_dist=0,
+                 EDGE_dnsty=0,
+                 year=factor("1996-1997", levels=c(unique(year))),
+                 effort=seq(-0.3,3.5,length=50))
+
+E.p <- predict(fmHD2, type="det", newdata=nd, appendData=TRUE)
+# back transform effort to determine best detection probability per effort
+# looks like peak of detection between 20-40 trap days of effort (# traps and days open per grid cell)
+op <- par(mfrow=c(2,1), mai=c(0.9,0.9,0.2,0.2))
+E.p$effOrig <- E.p$effort*(2*sd(ee, na.rm=T)) + mean(ee, na.rm = T)
+with(E.p, {
+  plot(effOrig, Predicted, ylim=c(0,1), type="l",col=4,
+       xlab="Trap Effort", ylab=expression( italic(p) ),
+       cex.lab=0.8, cex.axis=0.8)
+  lines(effOrig, Predicted+1.96*SE, col=gray(0.7))
+  lines(effOrig, Predicted-1.96*SE, col=gray(0.7))
+})
+
+nd <- data.frame(year=c("1996-1997","1997-1998","2019-2020"),
+                 effort=0)
+E.p <- predict(fmHD2, type='det', newdata=nd,appendData=TRUE)
+# plogis(coef(m1)) # checking to see same back transformation with predict and plogis = TRUE
+with(E.p, { # Plot for detection probability: note 3 years
+  plot(1:3, Predicted, pch=1, xaxt='n', xlab='Year',
+       ylab=expression( italic(p)),
+       cex.lab=0.8, cex.axis=0.8,
+       ylim=c(0,1), col=4)
+  axis(1, at=1:3, labels=nd$year)
+  arrows(1:3, lower, 1:3, upper, code=3, angle=90, length=0.03, col=4)
+})
+par(op)
+
+dev.off()
