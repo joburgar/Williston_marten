@@ -213,7 +213,7 @@ save(traps.grid, file = paste0("./out/retro_traps_grp.RData"))
 ##################################################################################
 ###--- Create map for recent trap data
 load("out/rec.data.out.RData")
-# rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata, rec_grid_output=rec_grid_output, grid_centroid_utm=grid_centroid_utm)
+# rec.data.out <- list(rec_effort=rec_effort, rec_ydata=rec_ydata)
 rec.data.out$rec_grid_output$aoi_utm
 traps.centroid <- as.data.frame(rec.data.out$grid_centroid_utm)
 traps.centroid$Martens <- rowSums(rec.data.out$rec_ydata)
@@ -237,6 +237,21 @@ hs2019_gridtraps_plot <- ggplot()+
 Cairo(file="out/hs2019_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
 hs2019_gridtraps_plot
 dev.off()
+
+# output for Table 2
+Marten19 <- as.data.frame(rowSums(rec.data.out$rec_ydata))
+colnames(Marten19) <-"Marten19"
+Marten19$grid_id <- rownames(Marten19)
+Marten19$n <- rec.data.out$rec_effort[,1]
+Marten19$Effort19 <- rowSums(rec.data.out$rec_effort)
+Marten19$DtnRate <- Marten19$Marten19/Marten19$Effort19
+# sum(Marten96$Marten96); sum(Marten97$Marten97); sum(Marten19$Marten19)
+
+sum(Marten19$n); nrow(Marten19); mean(Marten19$n); standard_error(Marten19$n) # 184 traps; 122 grid cells; 1.5 mean, 0.1 SE
+nrow(Marten19[Marten19$Marten19>0,])/nrow(Marten19) # 0.31 naive occupancy
+mean(Marten19$Effort19); standard_error(Marten19$Effort19) # 6.0, 0.4
+mean(Marten19$DtnRate)*100; standard_error(Marten19$DtnRate)*100 # 5.9, 0.9
+
 
 ###--- view OSM data and download appropriate section for study area
 traps.latlon <- st_transform(traps.sf, crs=4326)
@@ -285,31 +300,46 @@ dev.off()
 
 ###################################################
 ###--- Create map for 1996 and 1997 trap data
-load("out/retro.data.out.RData")
+# output for Table 2 in report
+
+# standard error function
+standard_error <- function(x, na.rm=T) sd(x, na.rm=T) / sqrt(length(x)) 
+
+load("out/retro.data.out9697.RData")
+load("out/aoi_grid.RData")
 names(retro.data.out[[2]])
-# grid_centroid_utm <- st_coordinates(st_centroid(retro.data.out[[2]]$grid_output$fishnet_grid_sf))
-grid_centroid_utm <- st_coordinates(st_centroid(retro.data.out[[1]]$grid_output$fishnet_grid_sf))
+aoi_grid
+
+grid_centroid_utm <- st_coordinates(st_centroid(aoi_grid))
 traps.centroid <- as.data.frame(grid_centroid_utm)
-traps.centroid$Martens <- rowSums(retro.data.out[[1]]$y_21day)
-traps.centroid$MartenOcc <- ifelse(traps.centroid$Martens>1,1,0)
+traps.centroid <- cbind(traps.centroid, aoi_grid[,4:7] %>% st_drop_geometry())
 
 traps.sf <- st_as_sf(traps.centroid, coords=c("X","Y"), crs=26910)
+Marten96 <- retro.data.out[[1]]$traps.sf %>% count(grid_id) %>% st_drop_geometry()
+Marten96$Marten96 <- rowSums(retro.data.out[[1]]$y_21day)
+Marten96$Effort96 <- rowSums(retro.data.out[[1]]$effort.21days)
+Marten96$DtnRate <- Marten96$Marten96/Marten96$Effort96
 
-grid <- retro.data.out[[1]]$grid_output$fishnet_grid_sf
-grid <- st_as_sf(grid)
-grid.latlon <- st_transform(grid, crs=4326)
+Marten97 <- retro.data.out[[2]]$traps.sf %>% count(grid_id) %>% st_drop_geometry()
+Marten97$Marten97 <- rowSums(retro.data.out[[2]]$y_21day)
+Marten97$Effort97 <- rowSums(retro.data.out[[2]]$effort.21days)
+Marten97$DtnRate <- Marten97$Marten97/Marten97$Effort97
 
-lt1996_gridtraps_plot <- ggplot()+
-  geom_sf(data=grid, fill=NA)+
-  geom_sf(data=retro.data.out[[1]]$grid_output$aoi_utm)
+# output for Table 2
+sum(Marten96$n); nrow(Marten96); mean(Marten96$n); standard_error(Marten96$n) # 77 traps; 47 grid cells; 1.6 mean, 0.12 SE
+nrow(Marten96[Marten96$Marten96>0,])/nrow(Marten96) # 0.85 naive occupancy
+mean(Marten96$Effort96); standard_error(Marten96$Effort96) # 70.0, 7.9
+mean(Marten96$DtnRate)*100; standard_error(Marten96$DtnRate)*100 # 14.9, 3.1
 
-# Cairo(file="out/lt1997_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-# lt1997_gridtraps_plot
-# dev.off()
+sum(Marten97$n); nrow(Marten97); mean(Marten97$n); standard_error(Marten97$n) # 77 traps; 47 grid cells; 1.6 mean, 0.12 SE
+nrow(Marten97[Marten97$Marten97>0,])/nrow(Marten97) # 0.85 naive occupancy
+mean(Marten97$Effort97); standard_error(Marten97$Effort97) # 51.2, 5.6
+mean(Marten97$DtnRate, na.rm=T)*100; standard_error(Marten97$DtnRate)*100 # 7.4, 1.0
 
-Cairo(file="out/lt1996_gridtraps_plot.PNG",type="png",width=2200,height=2000,pointsize=12,bg="white",dpi=300)
-lt1996_gridtraps_plot
-dev.off()
+traps.sf$Marten96 <- Marten96$n[match(rownames(traps.sf),Marten96$grid_id)]
+traps.sf$Marten97 <- Marten96$n[match(rownames(traps.sf),Marten97$grid_id)]
+
+grid.latlon <- st_transform(aoi_grid, crs=4326)
 
 ###--- view OSM data and download appropriate section for study area
 traps.latlon <- st_transform(traps.sf, crs=4326)
@@ -331,13 +361,15 @@ map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS8
 
 traps.latlon$Longitude <- st_coordinates(traps.latlon)[,1]
 traps.latlon$Latitude <- st_coordinates(traps.latlon)[,2]
+traps.latlon[is.na(traps.latlon)] <-0
 
-traps.plot.1997 <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
+
+traps.plot <- OpenStreetMap::autoplot.OpenStreetMap(map.latlon)  +
   labs(subtitle = "1997-1998")+
-  geom_sf(data=traps.latlon[traps.latlon$Martens!=0,],
-          aes(x=Longitude, y=Latitude, size=Martens), col="darkblue")+
-  geom_sf(data=traps.latlon[traps.latlon$Martens==0,],
-          aes(x=Longitude, y=Latitude), col="cadetblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Marten97!=0,],
+          aes(x=Longitude, y=Latitude, size=Marten97), col="darkblue")+
+  geom_sf(data=traps.latlon[traps.latlon$Marten96!=0,],
+          aes(x=Longitude, y=Latitude, size=Marten96), col="cadetblue")+
   theme(axis.title.x=element_blank(),axis.title.y=element_blank())+
   theme(legend.position = "bottom")
 
