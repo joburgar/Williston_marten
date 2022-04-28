@@ -353,7 +353,6 @@ out <- nimbleMCMC(code = nmix_effort,
                   samplesAsCodaMCMC = TRUE)
 
 save(out, file = paste0("out/nmix_21day_969719_effort_mcmcoutput.RData"))
-# save(out, file = paste0("out/nmix_21day_9719_effort_mcmcoutput.RData"))
 # load("out/nmix_21day_969719_effort_mcmcoutput.RData")
 
 chainsPlot(out) # traceplots saved - dp is better!
@@ -403,9 +402,9 @@ Cairo(file="out/nmix_dp969719.PNG",type="png",width=2800,height=2200,pointsize=1
 #     title = "Annual Detection Probability (dp) Estimates",
 #     subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
 #   )
-mcmc_areas(posterior, pars = c("dp 1996-1997","dp 1997-1998","dp 2019-2020"))+ # year effects on latent abundance
+mcmc_areas(posterior, pars = c("dp 1996-1997","dp 1997-1998","dp 2019-2020"), prob=0.95)+ # year effects on latent abundance
   labs(
-    title = "Estimated Detection Probability (dp)",
+    title = "Estimated Detection Probability",
     subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (current) data"
   )
 dev.off()
@@ -417,13 +416,18 @@ posterior[,7] <- posterior[,5]+posterior[,7]
 posterior[,8] <- posterior[,5]+posterior[,8]
 
 Cairo(file="out/nmix_Ng969719.PNG",type="png",width=2800,height=2200,pointsize=14,bg="white",dpi=300)
-mcmc_areas(posterior, pars = c("1996-1997","1997-1998","2019-2020"), area_method = "equal area")+ # year effects on latent abundance
+mcmc_areas(posterior, pars = c("1996-1997","1997-1998","2019-2020"), area_method = "equal area", prob=0.95)+ # year effects on latent abundance
   labs(
     title = "Estimated Median Abundance per Grid Cell",
     subtitle = "N-mixture models fit to Williston Basin live trapping (retrospective) and hair snag (recent) data"
   )
 dev.off()
-
+quantile(posterior[,6])
+# 2.165656 2.611876 2.706684 2.804315 3.304538 
+quantile(posterior[,7])
+# 1.566325 1.984804 2.066595 2.150379 2.620323 
+quantile(posterior[,8])
+# 1.039710 1.689243 1.800232 1.912530 2.560738 
 
 # Calculate ESS effective sample size
 # adjusted sample size = effective sample size
@@ -437,7 +441,7 @@ dev.off()
 
 # run for 2 clusters of marten grid cells
 # data wrangled and code fixed by Daniel Eacker (through nimble user group listserv)
-load("out/MartenGridData_2020.Rda")
+load("out/MartenGridData_2020.RData")
 
 # just marten cells
 J <- martenGrid.hsdata$J  # 2 clusters of 20 traps each
@@ -464,8 +468,8 @@ G <- 2 # 2 clusters
 M <- 200 # augmented population
 
 # traps are in 2 clusters: 1-20, 21-40
-plot(traps[,,1])
-plot(traps[,,2])
+plot(traps[,,1], xlim=c(0,18), ylim=c(0,18))
+plot(traps[,,2], xlim=c(0,18), ylim=c(0,18))
 
 # y for Cluster 1
 y.C1 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasions
@@ -473,6 +477,7 @@ y.C1 <- array(0, dim = c(M, 20, 4)) # augmented pop = 200, 20 traps and 4 occasi
 edf.marten.C1 <- edf.marten[[1]] %>% filter(Grid_Num < 21)
 y.C1[cbind(edf.marten.C1$Animal_Num,edf.marten.C1$Grid_Num, edf.marten.C1$Occ)] <- 1
 sum(y.C1) == nrow(edf.marten.C1)     # 6 detections = 3 animals, 1 with 3 detections, 1 with 2 and 1 with 1
+edf.marten.C1 %>% count(Animal_ID)
 
 # get rid of zeros so observed animals come first
 y.C1 = y.C1[which(apply(y.C1,1,sum)>0),,]
@@ -498,6 +503,7 @@ y_all.C2 <- apply(y.C2, c(1,2), sum)
 y_all <- array(0,c(M,J,2)) # needs to be an array, not a list
 y_all[1:n0[1],,1] <- y_all.C1
 y_all[1:n0[2],,2] <- y_all.C2
+sum(y_all) # 19 = sum(y.C1, y.C2)
 
 z_all <- array(1,c(M,J,2)) # needs to be an array, not a list
 
@@ -565,40 +571,63 @@ params <- c('sigma', 'p0', 'psi', 'N', 'D')
 ni <- 50000  ;   nb <- 5000   ;   nc <- 3 #  nt <- 20 
 
 # Test with no latent N
-scrR <- nimbleModel(code = SCR_bern,
-                    data=data,
-                    constants = constants,
-                    inits = inits)
+scrR <- nimbleMCMC(code = SCR_bern, 
+                  data=data,
+                  constants = constants, 
+                  inits = inits,
+                  monitors = params,
+                  nburnin = nb, 
+                  niter = ni,
+                  nchains = nc,
+                  samplesAsCodaMCMC = TRUE)
 
-scrR$calculate()
-scrR$initializeInfo()
-
-# compile model to C++#
-scrC <- compileNimble(scrR, showCompilerOutput = F)
-# MCMC sampler configurations
-mcmcspec<-configureMCMC(scrR, monitors=params)
-# build the MCMC specifications
-scrMCMC <- buildMCMC(mcmcspec)
-# complile the code in S+
-CscrMCMC <- compileNimble(scrMCMC, project = scrR, resetFunctions = TRUE)
-# run MCMC
-tic()
-results3 <- runMCMC(CscrMCMC, niter = ni, nburnin=nb,nchains=nc, setSeed = 500)
-toc()
-# results1 = ni = 25000 # 482.63/60 # 8 min # poor mixing, don't go with these few ni
-# results2 = ni = 50000 # 930.06/60 # 15 min # better mixing
-# results3 = ni = 100000 # 2145.6/60 # 36 min # similar to results 2 
-# go with ni=50000
-
-save("results2",file=paste0("out/SCRbern2020.RData"))
-str(results2)
+save("scrR",file=paste0("out/SCRbern2020.RData"))
+str(scrR)
 load("out/SCRbern2020.RData")
 
-MCMCsummary(results3, round = 4)
-MCMCsummary(results2, round = 4)
+MCMCsummary(scrR, round = 4)
 
 # saved traceplots
-chainsPlot(results2,
-           var = c("N", "D"))
-chainsPlot(results2,
-           var = c("sigma","p0", "psi"))
+chainsPlot(scrR,
+           var = c("D","sigma","p0", "psi"))
+
+MCMCsummary(scrR,round = 4)
+scr.mcmc.summary <- MCMCsummary(scrR,round = 4)
+str(scr.mcmc.summary)
+scr.mcmc.summary$param <- row.names(scr.mcmc.summary)
+write.csv(scr.mcmc.summary,"out/scr_output_2019.csv")
+
+posterior <- as.matrix(scrR)
+dimnames(posterior)
+color_scheme_set("teal")
+str(posterior)
+
+Cairo(file="out/scr_D2019.PNG",type="png",width=2200,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_areas(posterior, pars = c("D[1]","D[2]"), prob=0.95)+ # density
+  labs(
+    title = expression("Estimated Density (D) per 100 km"^2),
+    subtitle = "SCR models fit to Williston Basin hair snag (current) data sampled in two clusters"
+  )
+dev.off()
+
+Cairo(file="out/scr_sigmap02019.PNG",type="png",width=2200,height=2200,pointsize=14,bg="white",dpi=300)
+mcmc_areas(posterior, pars = c("p0","sigma"), prob=0.95)+ # encounter rate and sigma
+  labs(
+    title = "Estimated Values",
+    subtitle = "SCR models fit to Williston Basin hair snag (current) data sampled in two clusters"
+  )
+dev.off()
+
+# source("./scrbook/R/hra.R")
+# source("./scrbook/R/pGauss1.R")
+# 
+# WB_marten_hra_mean <- hra(pGauss1, parms=c(1,1.20),xlim=c(0,20),ylim=c(0,20), plot=FALSE) # first params unit doesn't matter (intercept)
+# # radius to achieve 95% of area:  2.942378
+# # home range area:  27.19861
+# WB_marten_hra_LCL <- hra(pGauss1, parms=c(1,1.59),xlim=c(0,20),ylim=c(0,20), plot=FALSE) # first params unit doesn't matter (intercept)
+# # radius to achieve 95% of area:  3.888714
+# # home range area:  47.50747
+# WB_marten_hra_UCL <- hra(pGauss1, parms=c(1,2.43),xlim=c(0,20),ylim=c(0,20), plot=FALSE) # first params unit doesn't matter (intercept)
+# # radius to achieve 95% of area:  5.9707
+# # home range area:  111.9955
+
