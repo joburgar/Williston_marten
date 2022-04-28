@@ -467,6 +467,7 @@ aoi_grid$retro_96 <- cov.df$retro_96
 aoi_grid$retro_97 <- cov.df$retro_97
 
 aoi_grid <- aoi_grid %>% rowwise() %>% mutate(Yrs_surveyed = sum(recent_19,retro_96,retro_97, na.rm = T))
+aoi_grid %>% count(Yrs_surveyed)
 
 pal = pnw_palette(name="Cascades",n=3,type="discrete")
 
