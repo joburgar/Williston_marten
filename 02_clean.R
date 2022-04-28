@@ -360,39 +360,64 @@ martenGrid.hsdata <- list(J = nrow(traps.sc.C1), # 20 traps in each cluster
                       edf = list(edf.marten %>% filter(Grid_Num<21),edf.marten %>% filter(Grid_Num>20)),
                       sex = list(Sex.C1$Sex, Sex.C2$Sex))
 
-save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.RData"))
+# write.csv(edf.marten,"data/edf.marten.csv")
 
+save(martenGrid.hsdata, file = paste0("./out/MartenGridData_2020.RData"))
+load("out/MartenGridData_2020.RData")
 
 ###--- for visualization of recaps
 
 # # Create a buffer around the traps (15 km)
 # For visulaization of recaps
-# pts <- SpatialPoints(traps.scale[,c("x", "y")])
-# b.r <- buffer(pts, width = 15, dissolve = TRUE)
-# plot(b.r)
-# points(pts, col = "red", pch = 4)
-# bb <- bbox(b.r)
+pts <- SpatialPoints(traps.scale[,c("x", "y")])
+b.r <- buffer(pts, width = 5, dissolve = TRUE)
+plot(b.r)
+points(pts, col = "red", pch = 4)
+bb <- bbox(b.r)
 
 # plot captures and recaptures
-# hsdat.mart$Easting <- traps.df$Easting[match(hsdat.mart$Station, traps.df$Station)]
-# hsdat.mart$Northing <- traps.df$Northing[match(hsdat.mart$Station, traps.df$Station)]
-# 
-# cap1.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==1,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
-# cap1.coords.scaled <- cap1.coords/coord.scale
-# cap1 <- SpatialPoints(cap1.coords.scaled[,c("Easting", "Northing")])
-# 
-# cap2.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==2,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
-# cap2.coords.scaled <- cap2.coords/coord.scale
-# cap2 <- SpatialPoints(cap2.coords.scaled[,c("Easting", "Northing")])
-# 
-# cap3.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==3,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
-# cap3.coords.scaled <- cap3.coords/coord.scale
-# cap3 <- SpatialPoints(cap3.coords.scaled[,c("Easting", "Northing")])
-# 
-# b.r <- buffer(pts, width = 15, dissolve = TRUE)
-# plot(b.r)
-# points(pts, col="black", pch=19, cex=0.5)
-# points(cap1.coords.scaled, col = "red", pch = 4,  cex=1.5)
-# points(cap2.coords.scaled, col = "blue", pch = 4, cex=1.5)
-# points(cap3.coords.scaled, col = "green", pch = 4, cex=1.5)
+hsdat.mart$Easting <- traps.df$Easting[match(hsdat.mart$Station, traps.df$Station)]
+hsdat.mart$Northing <- traps.df$Northing[match(hsdat.mart$Station, traps.df$Station)]
 
+cap1.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==1,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
+cap1.coords.scaled <- cap1.coords/coord.scale
+cap1 <- SpatialPoints(cap1.coords.scaled[,c("Easting", "Northing")])
+
+cap2.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==2,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
+cap2.coords.scaled <- cap2.coords/coord.scale
+cap2 <- SpatialPoints(cap2.coords.scaled[,c("Easting", "Northing")])
+
+cap3.coords <- hsdat.mart %>% filter(Animal_ID %in% recaps[recaps$n==3,]$`Animal ID`) %>% dplyr::select("Easting", "Northing")
+cap3.coords.scaled <- cap3.coords/coord.scale
+cap3 <- SpatialPoints(cap3.coords.scaled[,c("Easting", "Northing")])
+
+b.r <- buffer(pts, width = 5, dissolve = TRUE) # 5 km buffer around traps
+
+Cairo(file="out/WB_MartenSCRtraps_caps.PNG",type="png",width=3800,height=2200,pointsize=14,bg="white",dpi=300)
+plot(b.r, main=c("Marten Specific SCR Trap Locations and Captures"))
+points(pts, col="black", pch=19, cex=0.5)
+points(cap1.coords.scaled, col = "red", pch = 4,  cex=1.5)
+points(cap2.coords.scaled, col = "blue", pch = 4, cex=1.5)
+points(cap3.coords.scaled, col = "darkgreen", pch = 4, cex=1.5)
+dev.off()
+
+pts.sf <- st_as_sf(pts)
+pts.sf1 <- pts.sf[1:20,]
+pts.sf2 <- pts.sf[21:40,]
+
+ggplot()+
+  geom_sf(data=pts.sf)
+
+library(nngeo)
+dist.traps1 <- st_nn(pts.sf1,pts.sf1, k = 2, returnDist = T)
+dist.traps1 <- unlist(dist.traps1$dist)
+dist.traps1 <- dist.traps1[dist.traps1>0]
+mean(dist.traps1) # 1.22
+sd(dist.traps1)/sqrt(length(dist.traps1)) # 0.07
+
+dist.traps2 <- st_nn(pts.sf2,pts.sf2, k = 2, returnDist = T)
+dist.traps2 <- unlist(dist.traps2$dist)
+dist.traps2 <- dist.traps2[dist.traps2>0]
+summary(dist.traps2)
+mean(dist.traps2) # 1.10
+sd(dist.traps2)/sqrt(length(dist.traps2)) # 0.07
