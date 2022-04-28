@@ -186,7 +186,7 @@ summary(colext.site.covS)
 # annual covariates
 # yearly site covariates (M rows and T columns)
 year <- c("1996-1997","1997-1998","2019-2020")
-year <- matrix(year, nrow(yy),3,byrow=TRUE)
+year <- matrix(year, nrow(colext.site.cov),3,byrow=TRUE)
 
 names(colext.df) # recall that colext.df is arranged by grid_id and then by year
 colext.annual.cov <- colext.df %>% dplyr::select(RD_density, EDGE_density, TRP_DNSTY, TREE20_prop, CANOPY_prop, HARVEST_prop)
@@ -194,10 +194,10 @@ colext.annual.cov <- colext.df %>% dplyr::select(RD_density, EDGE_density, TRP_D
 colext.annual.covS <- cbind(as.data.frame(scale(colext.annual.cov[,1:3])),colext.annual.cov[,4:6])
 colext.annual.covS[is.na(colext.annual.covS)] <- 0 # change the trapping density to 0 (mean) for unknown pixels
 
-y1 <- 1:nrow(yy)
-y2 <- (nrow(yy)+1):(2*nrow(yy))
-y3 <- (2*nrow(yy)+1):(3*nrow(yy))
-
+num.sites <- nrow(colext.site.cov)
+y1 <- 1:num.sites
+y2 <- (num.sites+1):(2*num.sites)
+y3 <- (2*num.sites+1):(3*num.sites)
 
 create_annual_cov_matrix <- function(M=150, T=3, cov.df=cov.df, cov.name=cov.name){
   cov_array <- array(NA, dim=c(M, T))
@@ -304,6 +304,12 @@ std2=function(x){
 
 eeS = std2(ee)
 summary(eeS, na.rm=T)
+
+dim(eeS)
+dim(yy)
+yy[is.na(eeS)!=is.na(yy)] <- NA
+
+yy
 ################################################################################
 
 ###--- combine data for simple data frame - only year as yearly site covariates
@@ -391,6 +397,7 @@ par(op)
 
 
 m1 <- nonparboot(m1, B = 10) # B should be 1000 for more complex models
+plogis(coef(m1))
 cbind(smoothed=smoothed(m1)[2,], SE=m1@smoothed.mean.bsse[2,])
 
 # # turnover (not sure this is relevant, just following along colext example)
@@ -595,10 +602,27 @@ HDms <- modSel(Disturbancemodels)
 HDms # slightly better without SBS, but within 2 delta - no clear winners other than including W2 and possibly utmy
 
 
-fmHD2 <- nonparboot(fmHD2, B = 1000) # B should be 1000 for more complex models
-save(fmHD2, file = paste0("./out/colext_top_model_fmHD2.RData"))
+# to check out the proportion of sites that are occupied,the smoothed estimates are the finite-sample quantities
+# fmHD2 <- nonparboot(fmHD2, B = 1000) # B should be 1000 for more complex models
+# save(fmHD2, file = paste0("./out/colext_top_model_fmHD2.RData"))
+# load("out/colext_top_model_fmHD2.RData")
 
 cbind(smoothed=smoothed(fmHD2)[2,], SE=fmHD2@smoothed.mean.bsse[2,])
+# smoothed         SE
+# 1 0.9535603 0.06065731
+# 2 0.9627560 0.04161565
+# 3 0.9710662 0.04585145
+
+plogis(coef(fmHD2))
+plogis((137.5))
+
+backTransform(fmHD2, type="det")
+backTransform(fmHD2, type="ext")
+backTransform(fmHD2, type="psi")
+
+
+# fmye2 <- nonparboot(fmye2, B = 1000) # B should be 1000 for more complex models
+
 
 
 TopModels <- fitList('psi(.)gam(.)eps(.)p(Y)' = fmy1,
@@ -616,6 +640,7 @@ write.csv(toExport, "out/colext_top_model_ms.csv")
 
 # can also use backTransform function to back transform estimate, se and confidence intervals
 toExport2 <- plogis(coef(fmHD2))
+str(fmHD2)
 print(toExport2)
 write.csv(toExport2, "out/colext_top_model_backtransform.csv")
 
@@ -671,7 +696,7 @@ op <- par(mfrow=c(2,1), mai=c(0.9,0.9,0.2,0.2))
 E.p$effOrig <- E.p$effort*(2*sd(ee, na.rm=T)) + mean(ee, na.rm = T)
 with(E.p, {
   plot(effOrig, Predicted, ylim=c(0,1), type="l",col=4,
-       xlab="Trap Effort", ylab=expression( italic(p) ),
+       xlab="Grid Cell Effort", ylab=expression( italic(p) ),
        cex.lab=0.8, cex.axis=0.8)
   lines(effOrig, Predicted+1.96*SE, col=gray(0.7))
   lines(effOrig, Predicted-1.96*SE, col=gray(0.7))
